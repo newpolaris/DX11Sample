@@ -35,7 +35,7 @@
 		HRESULT hr = (x);                                      \
 		if(FAILED(hr))                                         \
 		{                                                      \
-			DXTrace(__FILE__, (DWORD)__LINE__, hr, L#x, true); \
+			DXTrace(__FILEW__, (DWORD)__LINE__, hr, L#x, true); \
 		}                                                      \
 	}
 	#endif
