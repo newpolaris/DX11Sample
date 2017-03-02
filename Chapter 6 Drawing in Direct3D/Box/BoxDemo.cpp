@@ -40,14 +40,19 @@ private:
 	void BuildVertexLayout();
 
 private:
+	ComPtr<ID3D11VertexShader> pVertexShader;
+	ComPtr<ID3DBlob> pVertexCompiledShader;
+
+	ComPtr<ID3D11PixelShader> pPixelShader;
+	ComPtr<ID3DBlob> pPixelCompiledShader;
+	
+	ComPtr<ID3D11InputLayout> pLayout;
+	ComPtr<ID3D11Buffer> buffer;
+
 	ID3D11Buffer* mBoxVB;
 	ID3D11Buffer* mBoxIB;
 
-	ID3DX11Effect* mFX;
-	ID3DX11EffectTechnique* mTech;
-	ID3DX11EffectMatrixVariable* mfxWorldViewProj;
-
-	ID3D11InputLayout* mInputLayout;
+	ComPtr<ID3D11InputLayout> mInputLayout;
 
 	XMFLOAT4X4 mWorld;
 	XMFLOAT4X4 mView;
@@ -78,8 +83,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
  
 
 BoxApp::BoxApp(HINSTANCE hInstance)
-: D3DApp(hInstance), mBoxVB(0), mBoxIB(0), mFX(0), mTech(0),
-  mfxWorldViewProj(0), mInputLayout(0), 
+: D3DApp(hInstance), mBoxVB(0), mBoxIB(0), 
   mTheta(1.5f*MathHelper::Pi), mPhi(0.25f*MathHelper::Pi), mRadius(5.0f)
 {
 	mMainWndCaption = L"Box Demo";
@@ -97,8 +101,6 @@ BoxApp::~BoxApp()
 {
 	ReleaseCOM(mBoxVB);
 	ReleaseCOM(mBoxIB);
-	ReleaseCOM(mFX);
-	ReleaseCOM(mInputLayout);
 }
 
 bool BoxApp::Init()
@@ -143,7 +145,7 @@ void BoxApp::DrawScene()
 	md3dImmediateContext->ClearRenderTargetView(mRenderTargetView, reinterpret_cast<const float*>(&Colors::LightSteelBlue));
 	md3dImmediateContext->ClearDepthStencilView(mDepthStencilView, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 
-	md3dImmediateContext->IASetInputLayout(mInputLayout);
+	md3dImmediateContext->IASetInputLayout(mInputLayout.Get());
     md3dImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 	UINT stride = sizeof(Vertex);
@@ -151,24 +153,35 @@ void BoxApp::DrawScene()
     md3dImmediateContext->IASetVertexBuffers(0, 1, &mBoxVB, &stride, &offset);
 	md3dImmediateContext->IASetIndexBuffer(mBoxIB, DXGI_FORMAT_R32_UINT, 0);
 
+	md3dImmediateContext->VSSetShader(pVertexShader.Get(), nullptr, 0);
+	md3dImmediateContext->PSSetShader(pPixelShader.Get(), nullptr, 0);
+
 	// Set constants
 	XMMATRIX world = XMLoadFloat4x4(&mWorld);
 	XMMATRIX view  = XMLoadFloat4x4(&mView);
 	XMMATRIX proj  = XMLoadFloat4x4(&mProj);
 	XMMATRIX worldViewProj = world*view*proj;
 
-	mfxWorldViewProj->SetMatrix(reinterpret_cast<float*>(&worldViewProj));
+	D3D11_MAPPED_SUBRESOURCE Data;
+	Data.pData = nullptr;
+	Data.DepthPitch = Data.RowPitch = 0;
 
-    D3DX11_TECHNIQUE_DESC techDesc;
-    mTech->GetDesc( &techDesc );
-    for(UINT p = 0; p < techDesc.Passes; ++p)
-    {
-        mTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
-        
-		// 36 indices for the box.
-		md3dImmediateContext->DrawIndexed(36, 0, 0);
-    }
+	const int subresourceID = 0;
 
+	auto pBuffer = buffer.Get();
+	HR(md3dImmediateContext->Map(
+		pBuffer,
+		subresourceID,
+		D3D11_MAP_WRITE_DISCARD,
+		0,
+		&Data));
+	memcpy(Data.pData, &worldViewProj, sizeof(worldViewProj));
+	md3dImmediateContext->Unmap(pBuffer, subresourceID);
+	md3dImmediateContext->VSSetConstantBuffers(0, 1, &pBuffer);
+
+	// 36 indices for the box.
+	md3dImmediateContext->DrawIndexed(36, 0, 0);
+	auto hr = md3dDevice->GetDeviceRemovedReason();
 	HR(mSwapChain->Present(0, 0));
 }
 
@@ -283,56 +296,105 @@ void BoxApp::BuildGeometryBuffers()
     iinitData.pSysMem = indices;
     HR(md3dDevice->CreateBuffer(&ibd, &iinitData, &mBoxIB));
 }
+
+D3D11_BUFFER_DESC SetDefaultConstantBuffer( UINT size, bool dynamic )
+{
+	D3D11_BUFFER_DESC state;
+	// Create the settings for a constant buffer.  This includes setting the 
+	// constant buffer flag, allowing the CPU write access, and a dynamic usage.
+	// Additional flags may be set as needed.
+
+	state.ByteWidth = size;
+    state.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    state.MiscFlags = 0;
+    state.StructureByteStride = 0;
+
+	if ( dynamic )
+	{
+		state.Usage = D3D11_USAGE_DYNAMIC;
+		state.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+	}
+	else
+	{
+		state.Usage = D3D11_USAGE_IMMUTABLE;
+		state.CPUAccessFlags = 0;
+	}
+	return state;
+}
+
+ComPtr<ID3DBlob> CompileShader(
+	const std::wstring & filename,
+	const D3D_SHADER_MACRO * defines,
+	const std::string & function,
+	const std::string & model)
+{
+    UINT flags = D3DCOMPILE_PACK_MATRIX_ROW_MAJOR;
+#ifdef _DEBUG
+    flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#endif
+
+	ComPtr<ID3DBlob> byteCode;
+	ComPtr<ID3DBlob> errors;
+
+	HRESULT hr = S_OK;
+	HR(D3DX11CompileFromFile(filename.c_str(),
+		defines,
+		nullptr,
+		function.c_str(),
+		model.c_str(),
+		flags,
+		0,
+		nullptr,
+		byteCode.GetAddressOf(),
+		errors.GetAddressOf(),
+		&hr));
+
+	return byteCode;
+}
  
 void BoxApp::BuildFX()
 {
-	DWORD shaderFlags = 0;
-#if defined( DEBUG ) || defined( _DEBUG )
-    shaderFlags |= D3D10_SHADER_DEBUG;
-	shaderFlags |= D3D10_SHADER_SKIP_OPTIMIZATION;
-#endif
- 
-	ID3D10Blob* compiledShader = 0;
-	ID3D10Blob* compilationMsgs = 0;
-	HRESULT hr = D3DX11CompileFromFile(L"FX/color.fx", 0, 0, 0, "fx_5_0", shaderFlags, 
-		0, 0, &compiledShader, &compilationMsgs, 0);
+	pVertexCompiledShader = CompileShader(L"FX/color.fx", nullptr, "VS", "vs_5_0");
+	md3dDevice->CreateVertexShader(pVertexCompiledShader->GetBufferPointer(),
+		pVertexCompiledShader->GetBufferSize(), nullptr, pVertexShader.ReleaseAndGetAddressOf());
+	pPixelCompiledShader = CompileShader(L"FX/color.fx", nullptr, "PS", "ps_5_0");
+	md3dDevice->CreatePixelShader(pPixelCompiledShader->GetBufferPointer(),
+		pPixelCompiledShader->GetBufferSize(), nullptr, pPixelShader.ReleaseAndGetAddressOf());
 
-	// compilationMsgs can store errors or warnings.
-	if( compilationMsgs != 0 )
-	{
-		MessageBoxA(0, (char*)compilationMsgs->GetBufferPointer(), 0, 0);
-		ReleaseCOM(compilationMsgs);
-	}
+	md3dDevice->CreateVertexShader(
+		pVertexCompiledShader->GetBufferPointer(),
+		pVertexCompiledShader->GetBufferSize(),
+		nullptr,
+		pVertexShader.ReleaseAndGetAddressOf());
 
-	// Even if there are no compilationMsgs, check to make sure there were no other errors.
-	if(FAILED(hr))
-	{
-		DXTrace(__FILEW__, (DWORD)__LINE__, hr, L"D3DX11CompileFromFile", true);
-	}
+	md3dDevice->CreatePixelShader(
+		pPixelCompiledShader->GetBufferPointer(),
+		pPixelCompiledShader->GetBufferSize(),
+		nullptr,
+		pPixelShader.ReleaseAndGetAddressOf());
 
-	HR(D3DX11CreateEffectFromMemory(compiledShader->GetBufferPointer(), compiledShader->GetBufferSize(), 
-		0, md3dDevice, &mFX));
-
-	// Done with compiled shader.
-	ReleaseCOM(compiledShader);
-
-	mTech    = mFX->GetTechniqueByName("ColorTech");
-	mfxWorldViewProj = mFX->GetVariableByName("gWorldViewProj")->AsMatrix();
+	auto Desc = SetDefaultConstantBuffer(sizeof(XMMATRIX), true);
+	HR(md3dDevice->CreateBuffer(
+		&Desc,
+		nullptr, 
+		buffer.GetAddressOf()));
 }
 
 void BoxApp::BuildVertexLayout()
 {
 	// Create the vertex input layout.
-	D3D11_INPUT_ELEMENT_DESC vertexDesc[] =
+	D3D11_INPUT_ELEMENT_DESC inputLayout[] =
 	{
 		{"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
 		{"COLOR",    0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0}
 	};
 
 	// Create the input layout
-    D3DX11_PASS_DESC passDesc;
-    mTech->GetPassByIndex(0)->GetDesc(&passDesc);
-	HR(md3dDevice->CreateInputLayout(vertexDesc, 2, passDesc.pIAInputSignature, 
-		passDesc.IAInputSignatureSize, &mInputLayout));
+	HR(md3dDevice->CreateInputLayout(
+		inputLayout,
+		2,
+		pVertexCompiledShader->GetBufferPointer(),
+		pVertexCompiledShader->GetBufferSize(),
+		mInputLayout.GetAddressOf()));
 }
  
