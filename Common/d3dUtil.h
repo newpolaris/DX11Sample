@@ -14,16 +14,20 @@
 #include "d3dx11Effect.h"
 #include <xnamath.h>
 #include <dxerr.h>
+#include <memory>
 #include <cassert>
+#include <unordered_map>
 #include <ctime>
 #include <algorithm>
 #include <string>
 #include <sstream>
 #include <fstream>
 #include <vector>
+#include <wrl.h>
+#include <array>
+#include "D3Dcompiler.h"
 #include "MathHelper.h"
 #include "LightHelper.h"
-
 //---------------------------------------------------------------------------------------
 // Simple d3d error checker for book demos.
 //---------------------------------------------------------------------------------------

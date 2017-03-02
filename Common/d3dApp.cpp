@@ -6,6 +6,8 @@
 #include <WindowsX.h>
 #include <sstream>
 
+using Microsoft::WRL::ComPtr;
+
 namespace
 {
 	// This is just used to forward Windows messages from a global window
@@ -35,8 +37,8 @@ D3DApp::D3DApp(HINSTANCE hInstance)
 	mMaximized(false),
 	mResizing(false),
 	m4xMsaaQuality(0),
- 
-	md3dDevice(0),
+
+ 	md3dDevice(0),
 	md3dImmediateContext(0),
 	mSwapChain(0),
 	mDepthStencilBuffer(0),
@@ -444,20 +446,15 @@ bool D3DApp::InitDirect3D()
 	// (by calling CreateDXGIFactory), we get an error: "IDXGIFactory::CreateSwapChain: 
 	// This function is being called with a device from a different IDXGIFactory."
 
-	IDXGIDevice* dxgiDevice = 0;
-	HR(md3dDevice->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgiDevice));
-	      
-	IDXGIAdapter* dxgiAdapter = 0;
-	HR(dxgiDevice->GetParent(__uuidof(IDXGIAdapter), (void**)&dxgiAdapter));
+	ComPtr<IDXGIDevice> pDXGIDevice;
+	HR(md3dDevice->QueryInterface(IID_PPV_ARGS(pDXGIDevice.GetAddressOf())));
 
-	IDXGIFactory* dxgiFactory = 0;
-	HR(dxgiAdapter->GetParent(__uuidof(IDXGIFactory), (void**)&dxgiFactory));
+	ComPtr<IDXGIAdapter> pDXGIAdapter;
+	HR(pDXGIDevice->GetParent(IID_PPV_ARGS(pDXGIAdapter.GetAddressOf())));
 
-	HR(dxgiFactory->CreateSwapChain(md3dDevice, &sd, &mSwapChain));
-	
-	ReleaseCOM(dxgiDevice);
-	ReleaseCOM(dxgiAdapter);
-	ReleaseCOM(dxgiFactory);
+	ComPtr<IDXGIFactory> pDXGIFactory;
+	HR(pDXGIAdapter->GetParent(IID_PPV_ARGS(pDXGIFactory.GetAddressOf())));
+	HR(pDXGIFactory->CreateSwapChain(md3dDevice, &sd, &mSwapChain));
 
 	// The remaining steps that need to be carried out for d3d creation
 	// also need to be executed every time the window is resized.  So
