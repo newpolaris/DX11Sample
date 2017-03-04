@@ -84,6 +84,7 @@ private:
 
 	std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
 	std::unordered_map<std::string, ComPtr<ID3D11Buffer>> resources;
+	std::unordered_map<std::string, ComPtr<ID3D11ShaderResourceView>> views;
 
 	// List of all the render items.
 	std::vector<std::unique_ptr<RenderItem>> mAllRitems;
@@ -173,6 +174,14 @@ void BoxApp::UpdateScene(float dt)
 
 	XMMATRIX V = XMMatrixLookAtLH(pos, target, up);
 	XMStoreFloat4x4(&mView, V);
+
+	// Set constants
+	XMMATRIX world = XMLoadFloat4x4(&mWorld);
+	XMMATRIX view  = XMLoadFloat4x4(&mView);
+	XMMATRIX proj  = XMLoadFloat4x4(&mProj);
+	XMMATRIX worldViewProj = world*view*proj;
+
+	UpdateVariable("worldViewProj", &worldViewProj);
 }
 
 template <typename T>
@@ -221,17 +230,10 @@ void BoxApp::DrawScene()
 	md3dImmediateContext->VSSetShader(pVertexShader.Get(), nullptr, 0);
 	md3dImmediateContext->PSSetShader(pPixelShader.Get(), nullptr, 0);
 
-	// Set constants
-	XMMATRIX world = XMLoadFloat4x4(&mWorld);
-	XMMATRIX view  = XMLoadFloat4x4(&mView);
-	XMMATRIX proj  = XMLoadFloat4x4(&mProj);
-	XMMATRIX worldViewProj = world*view*proj;
 
-	UpdateVariable("worldViewProj", &worldViewProj);
-
-	std::array<ID3D11Buffer*, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT>  ConstantBuffers;
-	ConstantBuffers[0] = resources["worldViewProj"].Get();
-	md3dImmediateContext->VSSetConstantBuffers(0, 1, ConstantBuffers.data());
+	std::array<ID3D11ShaderResourceView*, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT> ShaderResourceViews;
+	ShaderResourceViews[0] = views["box"].Get();
+	md3dImmediateContext->VSSetShaderResources(0, 1, ShaderResourceViews.data());
 
 	// 36 indices for the box.
 	md3dImmediateContext->DrawIndexed(36, 0, 0);
@@ -304,7 +306,24 @@ void BoxApp::BuildFX()
 		nullptr,
 		pPixelShader.ReleaseAndGetAddressOf());
 
-	resources["worldViewProj"] = d3dHelper::CreateConstantBuffer(md3dDevice, sizeof(XMMATRIX));
+	XMMATRIX world = XMLoadFloat4x4(&mWorld);
+	D3D11_SUBRESOURCE_DATA data;
+	data.SysMemPitch = data.SysMemSlicePitch = 0;
+	data.pSysMem = &world;
+	resources["worldViewProj"] = d3dHelper::CreateStructuredBuffer(
+		md3dDevice, 1, sizeof(XMMATRIX), true, false, &data);
+
+	ComPtr<ID3D11ShaderResourceView> view;
+	D3D11_SHADER_RESOURCE_VIEW_DESC desc;
+	desc.Format = DXGI_FORMAT_UNKNOWN;
+	desc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+	desc.Buffer.ElementOffset = 0;
+	// CAUTION: num of element 랑 같은 의미, sizeof(XMMATRIX)가 들어가면 
+	// 숫자가 맞지 않기에 invalidarg 오류 발생 
+	desc.Buffer.ElementWidth = 1; 
+	auto pSR = resources["worldViewProj"].Get();
+	HR(md3dDevice->CreateShaderResourceView(pSR, &desc, view.GetAddressOf()));
+	views["box"] = view;
 }
 
 void BoxApp::BuildVertexLayout()

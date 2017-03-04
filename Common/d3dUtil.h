@@ -122,6 +122,37 @@ public:
 			buffer.GetAddressOf()));
 		return buffer;
 	}
+	static Microsoft::WRL::ComPtr<ID3D11Buffer> CreateStructuredBuffer(
+		ID3D11Device* device,
+		int count,
+		int structsize,
+		bool CPUWritable,
+		bool GPUWritable,
+		D3D11_SUBRESOURCE_DATA* data) 
+	{
+		D3D11_BUFFER_DESC desc;
+		desc.ByteWidth = count * structsize;
+		desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+		desc.StructureByteStride = structsize;
+
+		if (!CPUWritable && !GPUWritable)
+		{
+			desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+			desc.Usage = D3D11_USAGE_IMMUTABLE;
+			desc.CPUAccessFlags = 0;
+		}
+		else if (CPUWritable && !GPUWritable)
+		{
+			desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+			desc.Usage = D3D11_USAGE_DYNAMIC;
+			desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		}
+		// UNDONE: with error, unordered access
+
+		Microsoft::WRL::ComPtr<ID3D11Buffer> buffer;
+		HR(device->CreateBuffer(&desc, data, buffer.GetAddressOf()));
+		return buffer;
+	}
 
 	static Microsoft::WRL::ComPtr<ID3D11Buffer> CreateVertexBuffer(
 		ID3D11Device* device,
