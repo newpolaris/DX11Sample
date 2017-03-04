@@ -110,6 +110,25 @@ public:
 		return state;
 	}
 
+	static Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> CreateSRV(
+		ID3D11Device* device,
+		ID3D11Resource *pResource,
+		int start, int len)
+	{
+		D3D11_SHADER_RESOURCE_VIEW_DESC desc;
+		desc.Format = DXGI_FORMAT_UNKNOWN;
+		desc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+		// CAUTION: 이것도 FirstElement 와 같은 의미 byte offset이 아닌 숫자일 듯
+		desc.Buffer.ElementOffset = start;
+		// CAUTION: num of element 랑 같은 의미, sizeof(XMMATRIX)가 들어가면 
+		// 숫자가 맞지 않기에 invalidarg 오류 발생 
+		desc.Buffer.ElementWidth = len;
+
+		Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> view;
+		HR(device->CreateShaderResourceView(pResource, &desc, view.GetAddressOf()));
+		return view;
+	}
+
 	static Microsoft::WRL::ComPtr<ID3D11Buffer> CreateConstantBuffer(
 		ID3D11Device* device,
 		int size)
@@ -361,6 +380,13 @@ struct MeshGeometry
 	}
 	*/
 };
+
+inline std::wstring AnsiToWString(const std::string& str)
+{
+    WCHAR buffer[512];
+    MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, buffer, 512);
+    return std::wstring(buffer);
+}
 
 #ifndef ThrowIfFailed
 #define ThrowIfFailed(x)                                              \

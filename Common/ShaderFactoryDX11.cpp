@@ -16,7 +16,7 @@ ComPtr<ID3DBlob> ShaderFactoryDX11::LoadShader(
 	fin.close();
 
 	ComPtr<ID3DBlob> pBlob;
-	HR(D3DCreateBlob(size, pBlob.GetAddressOf()))
+	HR(D3DCreateBlob(size, pBlob.GetAddressOf()));
 	
 	memcpy(pBlob->GetBufferPointer(), compiledShader.data(), size);
 

@@ -11,7 +11,23 @@
 
 #include "d3dApp.h"
 #include "MathHelper.h"
+#include "FrameResource.h"
 #include "ShaderFactoryDX11.h"
+
+#pragma comment(lib, "d3d11.lib")
+#pragma comment(lib, "D3DCompiler.lib")
+#pragma comment(lib, "dxerr.lib")
+#pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "dxguid.lib")
+#pragma comment(lib, "Gdi32.lib")
+
+#ifdef _DEBUG
+#pragma comment(lib, "d3dx11d.lib")
+#else
+#pragma comment(lib, "d3dx11.lib")
+#endif
+
+const int gNumFrameResources = 1;
 
 using Microsoft::WRL::ComPtr;
 
@@ -70,6 +86,8 @@ private:
 	void BuildGeometry();
 	void BuildRenderItems();
 
+	void BuildFrameResources();
+
 	template<typename T> void UpdateVariable(std::string tag, T * data);
 
 private:
@@ -82,14 +100,16 @@ private:
 	ComPtr<ID3D11InputLayout> pLayout;
 	ComPtr<ID3D11Buffer> buffer;
 
+	ComPtr<ID3D11InputLayout> mInputLayout;
+
+    std::vector<std::unique_ptr<FrameResource>> mFrameResources;
+    FrameResource* mCurrFrameResource = nullptr;
+    int mCurrFrameResourceIndex = 0;
+
 	std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
-	std::unordered_map<std::string, ComPtr<ID3D11Buffer>> resources;
-	std::unordered_map<std::string, ComPtr<ID3D11ShaderResourceView>> views;
 
 	// List of all the render items.
 	std::vector<std::unique_ptr<RenderItem>> mAllRitems;
-
-	ComPtr<ID3D11InputLayout> mInputLayout;
 
 	XMFLOAT4X4 mWorld;
 	XMFLOAT4X4 mView;
@@ -147,6 +167,7 @@ bool BoxApp::Init()
 	BuildVertexLayout();
 	BuildGeometry();
 	BuildRenderItems();
+	BuildFrameResources();
 
 	return true;
 }
@@ -162,6 +183,10 @@ void BoxApp::OnResize()
 
 void BoxApp::UpdateScene(float dt)
 {
+    // Cycle through the circular frame resource array.
+    mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % gNumFrameResources;
+    mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
+
 	// Convert Spherical to Cartesian coordinates.
 	float x = mRadius*sinf(mPhi)*cosf(mTheta);
 	float z = mRadius*sinf(mPhi)*sinf(mTheta);
@@ -180,30 +205,11 @@ void BoxApp::UpdateScene(float dt)
 	XMMATRIX view  = XMLoadFloat4x4(&mView);
 	XMMATRIX proj  = XMLoadFloat4x4(&mProj);
 	XMMATRIX worldViewProj = world*view*proj;
+	ObjectConstants obj;
+	obj.worldViewProj = worldViewProj;
+	mCurrFrameResource->ObjectCB->CopyData(0, obj);
 
-	UpdateVariable("worldViewProj", &worldViewProj);
-}
-
-template <typename T>
-void BoxApp::UpdateVariable(
-	std::string tag,
-	T* data)
-{
-	D3D11_MAPPED_SUBRESOURCE Data;
-	Data.pData = nullptr;
-	Data.DepthPitch = Data.RowPitch = 0;
-
-	const int subresourceID = 0;
-
-	auto pBuffer = resources[tag].Get();
-	HR(md3dImmediateContext->Map(
-		pBuffer,
-		subresourceID,
-		D3D11_MAP_WRITE_DISCARD,
-		0,
-		&Data));
-	memcpy(Data.pData, data, sizeof(T));
-	md3dImmediateContext->Unmap(pBuffer, subresourceID);
+	mCurrFrameResource->ObjectCB->UploadData(md3dImmediateContext);
 }
 
 void BoxApp::DrawScene()
@@ -225,15 +231,14 @@ void BoxApp::DrawScene()
 		auto pvb = static_cast<ID3D11Buffer*>(geo->VertexBufferGPU.Get());
 		UINT vstride = geo->VertexByteStride, vstart = ri->BaseVertexLocation;
 		md3dImmediateContext->IASetVertexBuffers(0, 1, &pvb, &vstride, &vstart);
+
+		std::array<ID3D11ShaderResourceView*, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT> ShaderResourceViews;
+		ShaderResourceViews[0] = mCurrFrameResource->ObjectCB->GetView(0);
+		md3dImmediateContext->VSSetShaderResources(0, 1, ShaderResourceViews.data());
 	}
 
 	md3dImmediateContext->VSSetShader(pVertexShader.Get(), nullptr, 0);
 	md3dImmediateContext->PSSetShader(pPixelShader.Get(), nullptr, 0);
-
-
-	std::array<ID3D11ShaderResourceView*, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT> ShaderResourceViews;
-	ShaderResourceViews[0] = views["box"].Get();
-	md3dImmediateContext->VSSetShaderResources(0, 1, ShaderResourceViews.data());
 
 	// 36 indices for the box.
 	md3dImmediateContext->DrawIndexed(36, 0, 0);
@@ -305,25 +310,6 @@ void BoxApp::BuildFX()
 		pPixelCompiledShader->GetBufferSize(),
 		nullptr,
 		pPixelShader.ReleaseAndGetAddressOf());
-
-	XMMATRIX world = XMLoadFloat4x4(&mWorld);
-	D3D11_SUBRESOURCE_DATA data;
-	data.SysMemPitch = data.SysMemSlicePitch = 0;
-	data.pSysMem = &world;
-	resources["worldViewProj"] = d3dHelper::CreateStructuredBuffer(
-		md3dDevice, 1, sizeof(XMMATRIX), true, false, &data);
-
-	ComPtr<ID3D11ShaderResourceView> view;
-	D3D11_SHADER_RESOURCE_VIEW_DESC desc;
-	desc.Format = DXGI_FORMAT_UNKNOWN;
-	desc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
-	desc.Buffer.ElementOffset = 0;
-	// CAUTION: num of element 랑 같은 의미, sizeof(XMMATRIX)가 들어가면 
-	// 숫자가 맞지 않기에 invalidarg 오류 발생 
-	desc.Buffer.ElementWidth = 1; 
-	auto pSR = resources["worldViewProj"].Get();
-	HR(md3dDevice->CreateShaderResourceView(pSR, &desc, view.GetAddressOf()));
-	views["box"] = view;
 }
 
 void BoxApp::BuildVertexLayout()
@@ -421,3 +407,11 @@ void BoxApp::BuildRenderItems()
 	mAllRitems.push_back(std::move(boxRitem));
 }
  
+void BoxApp::BuildFrameResources()
+{
+    for(int i = 0; i < gNumFrameResources; ++i)
+    {
+        mFrameResources.push_back(std::make_unique<FrameResource>(
+			md3dDevice, 0, (UINT)mAllRitems.size(), 0));
+    }
+}
