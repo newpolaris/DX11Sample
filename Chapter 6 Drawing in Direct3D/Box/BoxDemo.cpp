@@ -21,6 +21,34 @@ struct Vertex
 	XMFLOAT4 Color;
 };
 
+// Lightweight structure stores parameters to draw a shape.  This will
+// vary from app-to-app.
+struct RenderItem
+{
+	RenderItem() = default;
+
+    // World matrix of the shape that describes the object's local space
+    // relative to the world space, which defines the position, orientation,
+    // and scale of the object in the world.
+    XMFLOAT4X4 World = MathHelper::Identity4x4();
+
+	XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
+
+	// Index into GPU constant buffer corresponding to the ObjectCB for this render item.
+	UINT ObjCBIndex = -1;
+
+	Material* Mat = nullptr;
+	MeshGeometry* Geo = nullptr;
+
+    // Primitive topology.
+    D3D11_PRIMITIVE_TOPOLOGY PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+
+    // DrawIndexedInstanced parameters.
+    UINT IndexCount = 0;
+    UINT StartIndexLocation = 0;
+    int BaseVertexLocation = 0;
+};
+
 class BoxApp : public D3DApp
 {
 public:
@@ -37,10 +65,12 @@ public:
 	void OnMouseMove(WPARAM btnState, int x, int y);
 
 private:
-	void BuildGeometryBuffers();
-	void CreateDynamicBuffer(std::string tag, int size);
 	void BuildFX();
 	void BuildVertexLayout();
+	void BuildGeometry();
+	void BuildRenderItems();
+
+	template<typename T> void UpdateVariable(std::string tag, T * data);
 
 private:
 	ComPtr<ID3D11VertexShader> pVertexShader;
@@ -52,10 +82,11 @@ private:
 	ComPtr<ID3D11InputLayout> pLayout;
 	ComPtr<ID3D11Buffer> buffer;
 
+	std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
 	std::unordered_map<std::string, ComPtr<ID3D11Buffer>> resources;
 
-	ID3D11Buffer* mBoxVB;
-	ID3D11Buffer* mBoxIB;
+	// List of all the render items.
+	std::vector<std::unique_ptr<RenderItem>> mAllRitems;
 
 	ComPtr<ID3D11InputLayout> mInputLayout;
 
@@ -68,8 +99,6 @@ private:
 	float mRadius;
 
 	POINT mLastMousePos;
-	template<typename T>
-	void UpdateVariable(std::string tag, T * data);
 };
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -90,8 +119,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
  
 
 BoxApp::BoxApp(HINSTANCE hInstance)
-: D3DApp(hInstance), mBoxVB(0), mBoxIB(0), 
-  mTheta(1.5f*MathHelper::Pi), mPhi(0.25f*MathHelper::Pi), mRadius(5.0f)
+	: D3DApp(hInstance), mTheta(1.5f*MathHelper::Pi),
+	mPhi(0.25f*MathHelper::Pi), mRadius(5.0f)
 {
 	mMainWndCaption = L"Box Demo";
 	
@@ -106,8 +135,6 @@ BoxApp::BoxApp(HINSTANCE hInstance)
 
 BoxApp::~BoxApp()
 {
-	ReleaseCOM(mBoxVB);
-	ReleaseCOM(mBoxIB);
 }
 
 bool BoxApp::Init()
@@ -115,9 +142,10 @@ bool BoxApp::Init()
 	if(!D3DApp::Init())
 		return false;
 
-	BuildGeometryBuffers();
 	BuildFX();
 	BuildVertexLayout();
+	BuildGeometry();
+	BuildRenderItems();
 
 	return true;
 }
@@ -175,12 +203,20 @@ void BoxApp::DrawScene()
 	md3dImmediateContext->ClearDepthStencilView(mDepthStencilView, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 
 	md3dImmediateContext->IASetInputLayout(mInputLayout.Get());
-    md3dImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-	UINT stride = sizeof(Vertex);
-    UINT offset = 0;
-    md3dImmediateContext->IASetVertexBuffers(0, 1, &mBoxVB, &stride, &offset);
-	md3dImmediateContext->IASetIndexBuffer(mBoxIB, DXGI_FORMAT_R32_UINT, 0);
+	for (auto& ri : mAllRitems) {
+		md3dImmediateContext->IASetPrimitiveTopology(ri->PrimitiveType);
+
+		auto geo = ri->Geo;
+		auto pib = static_cast<ID3D11Buffer*>(geo->IndexBufferGPU.Get());
+		auto ibType = geo->IndexFormat;
+		auto iStart = ri->StartIndexLocation;
+		md3dImmediateContext->IASetIndexBuffer(pib, ibType, iStart);
+
+		auto pvb = static_cast<ID3D11Buffer*>(geo->VertexBufferGPU.Get());
+		UINT vstride = geo->VertexByteStride, vstart = ri->BaseVertexLocation;
+		md3dImmediateContext->IASetVertexBuffers(0, 1, &pvb, &vstride, &vstart);
+	}
 
 	md3dImmediateContext->VSSetShader(pVertexShader.Get(), nullptr, 0);
 	md3dImmediateContext->PSSetShader(pPixelShader.Get(), nullptr, 0);
@@ -247,11 +283,52 @@ void BoxApp::OnMouseMove(WPARAM btnState, int x, int y)
 	mLastMousePos.y = y;
 }
 
-void BoxApp::BuildGeometryBuffers()
+void BoxApp::BuildFX()
 {
-	// Create vertex buffer
-    Vertex vertices[] =
-    {
+	pVertexCompiledShader = ShaderFactoryDX11::CompileShader(L"FX/color.fx", nullptr, "VS", "vs_5_0");
+	md3dDevice->CreateVertexShader(pVertexCompiledShader->GetBufferPointer(),
+		pVertexCompiledShader->GetBufferSize(), nullptr, pVertexShader.ReleaseAndGetAddressOf());
+	pPixelCompiledShader = ShaderFactoryDX11::CompileShader(L"FX/color.fx", nullptr, "PS", "ps_5_0");
+	md3dDevice->CreatePixelShader(pPixelCompiledShader->GetBufferPointer(),
+		pPixelCompiledShader->GetBufferSize(), nullptr, pPixelShader.ReleaseAndGetAddressOf());
+
+	md3dDevice->CreateVertexShader(
+		pVertexCompiledShader->GetBufferPointer(),
+		pVertexCompiledShader->GetBufferSize(),
+		nullptr,
+		pVertexShader.ReleaseAndGetAddressOf());
+
+	md3dDevice->CreatePixelShader(
+		pPixelCompiledShader->GetBufferPointer(),
+		pPixelCompiledShader->GetBufferSize(),
+		nullptr,
+		pPixelShader.ReleaseAndGetAddressOf());
+
+	resources["worldViewProj"] = d3dHelper::CreateConstantBuffer(md3dDevice, sizeof(XMMATRIX));
+}
+
+void BoxApp::BuildVertexLayout()
+{
+	// Create the vertex input layout.
+	std::vector<D3D11_INPUT_ELEMENT_DESC> inputLayout =
+	{
+		{"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+		{"COLOR",    0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0}
+	};
+
+	// Create the input layout
+	HR(md3dDevice->CreateInputLayout(
+		inputLayout.data(),
+		inputLayout.size(),
+		pVertexCompiledShader->GetBufferPointer(),
+		pVertexCompiledShader->GetBufferSize(),
+		mInputLayout.GetAddressOf()));
+}
+
+void BoxApp::BuildGeometry()
+{
+	std::vector<Vertex> vertices =
+	{
 		{ XMFLOAT3(-1.0f, -1.0f, -1.0f), (const float*)&Colors::White   },
 		{ XMFLOAT3(-1.0f, +1.0f, -1.0f), (const float*)&Colors::Black   },
 		{ XMFLOAT3(+1.0f, +1.0f, -1.0f), (const float*)&Colors::Red     },
@@ -260,23 +337,9 @@ void BoxApp::BuildGeometryBuffers()
 		{ XMFLOAT3(-1.0f, +1.0f, +1.0f), (const float*)&Colors::Yellow  },
 		{ XMFLOAT3(+1.0f, +1.0f, +1.0f), (const float*)&Colors::Cyan    },
 		{ XMFLOAT3(+1.0f, -1.0f, +1.0f), (const float*)&Colors::Magenta }
-    };
+	};
 
-    D3D11_BUFFER_DESC vbd;
-    vbd.Usage = D3D11_USAGE_IMMUTABLE;
-    vbd.ByteWidth = sizeof(Vertex) * 8;
-    vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    vbd.CPUAccessFlags = 0;
-    vbd.MiscFlags = 0;
-	vbd.StructureByteStride = 0;
-    D3D11_SUBRESOURCE_DATA vinitData;
-    vinitData.pSysMem = vertices;
-    HR(md3dDevice->CreateBuffer(&vbd, &vinitData, &mBoxVB));
-
-
-	// Create the index buffer
-
-	UINT indices[] = {
+	std::vector<int> indices = {
 		// front face
 		0, 1, 2,
 		0, 2, 3,
@@ -302,95 +365,40 @@ void BoxApp::BuildGeometryBuffers()
 		4, 3, 7
 	};
 
-	D3D11_BUFFER_DESC ibd;
-    ibd.Usage = D3D11_USAGE_IMMUTABLE;
-    ibd.ByteWidth = sizeof(UINT) * 36;
-    ibd.BindFlags = D3D11_BIND_INDEX_BUFFER;
-    ibd.CPUAccessFlags = 0;
-    ibd.MiscFlags = 0;
-	ibd.StructureByteStride = 0;
-    D3D11_SUBRESOURCE_DATA iinitData;
-    iinitData.pSysMem = indices;
-    HR(md3dDevice->CreateBuffer(&ibd, &iinitData, &mBoxIB));
+	const UINT vbByteSize = sizeof(Vertex)*vertices.size();
+	const UINT ibByteSize = sizeof(indices)*indices.size();
+
+	auto geo = std::make_unique<MeshGeometry>();
+	geo->Name = "shapeGeo";
+	geo->VertexBufferGPU = d3dHelper::CreateVertexBuffer(
+		md3dDevice, vertices.data(), vbByteSize);
+	geo->IndexBufferGPU = d3dHelper::CreateIndexBuffer(
+		md3dDevice, indices.data(), ibByteSize);
+
+	geo->VertexByteStride = sizeof(Vertex);
+	geo->VertexBufferByteSize = vbByteSize;
+	geo->IndexFormat = DXGI_FORMAT_R32_UINT;
+	geo->IndexBufferByteSize = ibByteSize;
+
+	SubmeshGeometry submesh;
+	submesh.IndexCount = (UINT)indices.size();
+	submesh.StartIndexLocation = 0;
+	submesh.BaseVertexLocation = 0;
+
+	geo->DrawArgs["box"] = submesh;
+
+	mGeometries[geo->Name] = std::move(geo);
 }
 
-D3D11_BUFFER_DESC SetDefaultConstantBuffer( UINT size, bool dynamic )
+void BoxApp::BuildRenderItems()
 {
-	D3D11_BUFFER_DESC state;
-	// Create the settings for a constant buffer.  This includes setting the 
-	// constant buffer flag, allowing the CPU write access, and a dynamic usage.
-	// Additional flags may be set as needed.
-
-	state.ByteWidth = size;
-    state.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    state.MiscFlags = 0;
-    state.StructureByteStride = 0;
-
-	if ( dynamic )
-	{
-		state.Usage = D3D11_USAGE_DYNAMIC;
-		state.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-	}
-	else
-	{
-		state.Usage = D3D11_USAGE_IMMUTABLE;
-		state.CPUAccessFlags = 0;
-	}
-	return state;
-}
-
-void BoxApp::CreateDynamicBuffer(
-	std::string tag,
-	int size)
-{
-	auto Desc = SetDefaultConstantBuffer(size, true);
-	ComPtr<ID3D11Buffer> buffer;
-	HR(md3dDevice->CreateBuffer(
-		&Desc,
-		nullptr, 
-		buffer.GetAddressOf()));
-	resources[tag] = buffer;
-}
-
-void BoxApp::BuildFX()
-{
-	pVertexCompiledShader = ShaderFactoryDX11::CompileShader(L"FX/color.fx", nullptr, "VS", "vs_5_0");
-	md3dDevice->CreateVertexShader(pVertexCompiledShader->GetBufferPointer(),
-		pVertexCompiledShader->GetBufferSize(), nullptr, pVertexShader.ReleaseAndGetAddressOf());
-	pPixelCompiledShader = ShaderFactoryDX11::CompileShader(L"FX/color.fx", nullptr, "PS", "ps_5_0");
-	md3dDevice->CreatePixelShader(pPixelCompiledShader->GetBufferPointer(),
-		pPixelCompiledShader->GetBufferSize(), nullptr, pPixelShader.ReleaseAndGetAddressOf());
-
-	md3dDevice->CreateVertexShader(
-		pVertexCompiledShader->GetBufferPointer(),
-		pVertexCompiledShader->GetBufferSize(),
-		nullptr,
-		pVertexShader.ReleaseAndGetAddressOf());
-
-	md3dDevice->CreatePixelShader(
-		pPixelCompiledShader->GetBufferPointer(),
-		pPixelCompiledShader->GetBufferSize(),
-		nullptr,
-		pPixelShader.ReleaseAndGetAddressOf());
-
-	CreateDynamicBuffer("worldViewProj", sizeof(XMMATRIX));
-}
-
-void BoxApp::BuildVertexLayout()
-{
-	// Create the vertex input layout.
-	std::vector<D3D11_INPUT_ELEMENT_DESC> inputLayout =
-	{
-		{"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
-		{"COLOR",    0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0}
-	};
-
-	// Create the input layout
-	HR(md3dDevice->CreateInputLayout(
-		inputLayout.data(),
-		inputLayout.size(),
-		pVertexCompiledShader->GetBufferPointer(),
-		pVertexCompiledShader->GetBufferSize(),
-		mInputLayout.GetAddressOf()));
+	auto boxRitem = std::make_unique<RenderItem>();
+	boxRitem->ObjCBIndex = 0;
+	boxRitem->Geo = mGeometries["shapeGeo"].get();
+	boxRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
+	boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["box"].StartIndexLocation;
+	boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
+	mAllRitems.push_back(std::move(boxRitem));
 }
  

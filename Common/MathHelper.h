@@ -52,6 +52,17 @@ public:
 	// Returns the polar angle of the point (x,y) in [0, 2*PI).
 	static float AngleFromXY(float x, float y);
 
+    static XMFLOAT4X4 Identity4x4()
+    {
+        static XMFLOAT4X4 I(
+            1.0f, 0.0f, 0.0f, 0.0f,
+            0.0f, 1.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 1.0f, 0.0f,
+            0.0f, 0.0f, 0.0f, 1.0f);
+
+        return I;
+    }
+
 	static XMMATRIX InverseTranspose(CXMMATRIX M)
 	{
 		// Inverse-transpose is just applied to normals.  So zero out 

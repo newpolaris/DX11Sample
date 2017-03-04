@@ -78,10 +78,90 @@ public:
 		ID3D11Device* device, ID3D11DeviceContext* context,
 		std::vector<std::wstring>& filenames,
 		DXGI_FORMAT format = DXGI_FORMAT_FROM_FILE,
-		UINT filter = D3DX11_FILTER_NONE, 
+		UINT filter = D3DX11_FILTER_NONE,
 		UINT mipFilter = D3DX11_FILTER_LINEAR);
 
 	static ID3D11ShaderResourceView* CreateRandomTexture1DSRV(ID3D11Device* device);
+
+	static D3D11_BUFFER_DESC SetDefaultConstantBuffer(
+		UINT size,
+		bool dynamic)
+	{
+		D3D11_BUFFER_DESC state;
+		// Create the settings for a constant buffer.  This includes setting the 
+		// constant buffer flag, allowing the CPU write access, and a dynamic usage.
+		// Additional flags may be set as needed.
+
+		state.ByteWidth = size;
+		state.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		state.MiscFlags = 0;
+		state.StructureByteStride = 0;
+
+		if (dynamic)
+		{
+			state.Usage = D3D11_USAGE_DYNAMIC;
+			state.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		}
+		else
+		{
+			state.Usage = D3D11_USAGE_IMMUTABLE;
+			state.CPUAccessFlags = 0;
+		}
+		return state;
+	}
+
+	static Microsoft::WRL::ComPtr<ID3D11Buffer> CreateConstantBuffer(
+		ID3D11Device* device,
+		int size)
+	{
+		auto Desc = SetDefaultConstantBuffer(size, true);
+		Microsoft::WRL::ComPtr<ID3D11Buffer> buffer;
+		HR(device->CreateBuffer(
+			&Desc,
+			nullptr,
+			buffer.GetAddressOf()));
+		return buffer;
+	}
+
+	static Microsoft::WRL::ComPtr<ID3D11Buffer> CreateVertexBuffer(
+		ID3D11Device* device,
+		void* data,
+		int size)
+	{
+		Microsoft::WRL::ComPtr<ID3D11Buffer> buffer;
+		D3D11_BUFFER_DESC vbd;
+		vbd.Usage = D3D11_USAGE_IMMUTABLE;
+		vbd.ByteWidth = size;
+		vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+		vbd.CPUAccessFlags = 0;
+		vbd.MiscFlags = 0;
+		vbd.StructureByteStride = 0;
+		D3D11_SUBRESOURCE_DATA vinitData;
+		vinitData.pSysMem = data;
+		HR(device->CreateBuffer(
+			&vbd, &vinitData, buffer.GetAddressOf()));
+		return buffer;
+	}
+
+	static Microsoft::WRL::ComPtr<ID3D11Buffer> CreateIndexBuffer(
+		ID3D11Device* device,
+		void* data,
+		int size)
+	{
+		Microsoft::WRL::ComPtr<ID3D11Buffer> buffer;
+		D3D11_BUFFER_DESC ibd;
+		ibd.Usage = D3D11_USAGE_IMMUTABLE;
+		ibd.ByteWidth = size;
+		ibd.BindFlags = D3D11_BIND_INDEX_BUFFER;
+		ibd.CPUAccessFlags = 0;
+		ibd.MiscFlags = 0;
+		ibd.StructureByteStride = 0;
+		D3D11_SUBRESOURCE_DATA iinitData;
+		iinitData.pSysMem = data;
+		HR(device->CreateBuffer(
+			&ibd, &iinitData, buffer.GetAddressOf()));
+		return buffer;
+	}
 };
 
 class TextHelper
@@ -171,5 +251,94 @@ public:
 	}
 
 };
+
+class DxException
+{
+public:
+    DxException() = default;
+    DxException(HRESULT hr, const std::wstring& functionName, const std::wstring& filename, int lineNumber);
+
+    std::wstring ToString()const;
+
+    HRESULT ErrorCode = S_OK;
+    std::wstring FunctionName;
+    std::wstring Filename;
+    int LineNumber = -1;
+};
+
+// Defines a subrange of geometry in a MeshGeometry.  This is for when multiple
+// geometries are stored in one vertex and index buffer.  It provides the offsets
+// and data needed to draw a subset of geometry stores in the vertex and index 
+// buffers so that we can implement the technique described by Figure 6.3.
+struct SubmeshGeometry
+{
+	UINT IndexCount = 0;
+	UINT StartIndexLocation = 0;
+	INT BaseVertexLocation = 0;
+
+    // Bounding box of the geometry defined by this submesh. 
+    // This is used in later chapters of the book.
+	// DirectX::BoundingBox Bounds;
+};
+
+struct MeshGeometry
+{
+	// Give it a name so we can look it up by name.
+	std::string Name;
+
+	// System memory copies.  Use Blobs because the vertex/index format can be generic.
+	// It is up to the client to cast appropriately.  
+	Microsoft::WRL::ComPtr<ID3DBlob> VertexBufferCPU = nullptr;
+	Microsoft::WRL::ComPtr<ID3DBlob> IndexBufferCPU  = nullptr;
+
+	Microsoft::WRL::ComPtr<ID3D11Resource> VertexBufferGPU = nullptr;
+	Microsoft::WRL::ComPtr<ID3D11Resource> IndexBufferGPU = nullptr;
+
+	Microsoft::WRL::ComPtr<ID3D11Resource> VertexBufferUploader = nullptr;
+	Microsoft::WRL::ComPtr<ID3D11Resource> IndexBufferUploader = nullptr;
+
+    // Data about the buffers.
+	UINT VertexByteStride = 0;
+	UINT VertexBufferByteSize = 0;
+	DXGI_FORMAT IndexFormat = DXGI_FORMAT_R16_UINT;
+	UINT IndexBufferByteSize = 0;
+
+	// A MeshGeometry may store multiple geometries in one vertex/index buffer.
+	// Use this container to define the Submesh geometries so we can draw
+	// the Submeshes individually.
+	std::unordered_map<std::string, SubmeshGeometry> DrawArgs;
+
+	/*
+	D3D12_VERTEX_BUFFER_VIEW VertexBufferView()const
+	{
+		D3D12_VERTEX_BUFFER_VIEW vbv;
+		vbv.BufferLocation = VertexBufferGPU->GetGPUVirtualAddress();
+		vbv.StrideInBytes = VertexByteStride;
+		vbv.SizeInBytes = VertexBufferByteSize;
+
+		return vbv;
+	}
+
+	D3D12_INDEX_BUFFER_VIEW IndexBufferView()const
+	{
+		D3D12_INDEX_BUFFER_VIEW ibv;
+		ibv.BufferLocation = IndexBufferGPU->GetGPUVirtualAddress();
+		ibv.Format = IndexFormat;
+		ibv.SizeInBytes = IndexBufferByteSize;
+
+		return ibv;
+	}
+	*/
+};
+
+#ifndef ThrowIfFailed
+#define ThrowIfFailed(x)                                              \
+{                                                                     \
+    HRESULT hr__ = (x);                                               \
+    std::wstring wfn = AnsiToWString(__FILE__);                       \
+    if(FAILED(hr__)) { throw DxException(hr__, L#x, wfn, __LINE__); } \
+}
+#endif
+
 
 #endif // D3DUTIL_H
