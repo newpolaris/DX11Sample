@@ -369,6 +369,13 @@ void LitSkullApp::UpdateScene(float dt)
 		mLightCount = 3; 
 }
 
+template <typename T>
+bool chkupdate(T& pre, T& next) {
+	if (pre == next) return false;
+	pre = next;
+	return true;
+}
+
 void LitSkullApp::DrawScene()
 {
 	md3dImmediateContext->ClearRenderTargetView(mRenderTargetView, reinterpret_cast<const float*>(&Colors::LightSteelBlue));
@@ -385,16 +392,23 @@ void LitSkullApp::DrawScene()
 	md3dImmediateContext->VSSetConstantBuffers(0, 2, ConstantBuffers.data());
 	md3dImmediateContext->PSSetConstantBuffers(0, 2, ConstantBuffers.data());
 
+	ID3D11Buffer *pibPre = nullptr, *pvbPre = nullptr;
+	D3D11_PRIMITIVE_TOPOLOGY type;
+
 	for (size_t i = 0; i < mAllRitems.size(); ++i) {
 		auto& ri = mAllRitems[i];
-		md3dImmediateContext->IASetPrimitiveTopology(ri->PrimitiveType);
+
+		if (chkupdate(type, ri->PrimitiveType))
+			md3dImmediateContext->IASetPrimitiveTopology(type);
 		auto geo = ri->Geo;
 		auto pib = static_cast<ID3D11Buffer*>(geo->IndexBufferGPU.Get());
-		md3dImmediateContext->IASetIndexBuffer(pib, geo->IndexFormat, 0);
+		if (chkupdate(pibPre, pib))
+			md3dImmediateContext->IASetIndexBuffer(pibPre, geo->IndexFormat, 0);
 
 		auto pvb = static_cast<ID3D11Buffer*>(geo->VertexBufferGPU.Get());
 		UINT vstride = geo->VertexByteStride, offset = 0;
-		md3dImmediateContext->IASetVertexBuffers(0, 1, &pvb, &vstride, &offset);
+		if (chkupdate(pvbPre, pvb))
+			md3dImmediateContext->IASetVertexBuffers(0, 1, &pvbPre, &vstride, &offset);
 
 		// Update
 		mCurrFrameResource->ObjectCB->UploadData(md3dImmediateContext, i);
@@ -668,17 +682,6 @@ void LitSkullApp::BuildRenderItems()
 	boxRitem->Mat = &mBoxMat;
 	mAllRitems.push_back(std::move(boxRitem));
 
-	auto skullRitem = std::make_unique<RenderItem>();
-	skullRitem->ObjCBIndex = 2;
-	skullRitem->Geo = mGeometries["skull"].get();
-	skullRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	skullRitem->IndexCount = skullRitem->Geo->DrawArgs["skull"].IndexCount;
-	skullRitem->StartIndexLocation = skullRitem->Geo->DrawArgs["skull"].StartIndexLocation;
-	skullRitem->BaseVertexLocation = skullRitem->Geo->DrawArgs["skull"].BaseVertexLocation;
-	skullRitem->World = mSkullWorld;
-	skullRitem->Mat = &mSkullMat;
-	mAllRitems.push_back(std::move(skullRitem));
-
 	XMMATRIX brickTexTransform = XMMatrixScaling(1.0f, 1.0f, 1.0f);
 	UINT objCBIndex = 3;
 	for(int i = 0; i < 5; ++i)
@@ -744,6 +747,16 @@ void LitSkullApp::BuildRenderItems()
 		mAllRitems.push_back(std::move(rightSphereRitem));
 	}
 
+	auto skullRitem = std::make_unique<RenderItem>();
+	skullRitem->ObjCBIndex = 2;
+	skullRitem->Geo = mGeometries["skull"].get();
+	skullRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	skullRitem->IndexCount = skullRitem->Geo->DrawArgs["skull"].IndexCount;
+	skullRitem->StartIndexLocation = skullRitem->Geo->DrawArgs["skull"].StartIndexLocation;
+	skullRitem->BaseVertexLocation = skullRitem->Geo->DrawArgs["skull"].BaseVertexLocation;
+	skullRitem->World = mSkullWorld;
+	skullRitem->Mat = &mSkullMat;
+	mAllRitems.push_back(std::move(skullRitem));
 }
  
 void LitSkullApp::BuildFrameResources()
