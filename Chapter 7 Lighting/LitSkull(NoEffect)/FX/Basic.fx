@@ -10,18 +10,15 @@ cbuffer cbPerObject
 {
 	float4x4 gWorld;
 	float4x4 gWorldInvTranspose;
-	float4x4 gWorldViewProj;
-	float4x4 gTexTransform;
 	Material gMaterial;
 }; 
 
 cbuffer cbPerFrame 
 {
 	DirectionalLight gDirLights[3];
+	float4x4 gViewProj;
 	float3 gEyePosW;
 	float  gFogStart;
-	float  gFogRange;
-	float4 gFogColor;
 };
 
 // Nonnumeric values cannot be added to a cbuffer.
@@ -54,11 +51,12 @@ VertexOut VS(VertexIn vin)
 	VertexOut vout;
 	
 	// Transform to world space space.
-	vout.PosW    = mul(float4(vin.PosL, 1.0f), gWorld).xyz;
+	float4 PosW = mul(float4(vin.PosL, 1.0f), gWorld);
+	vout.PosW = PosW.xyz;
 	vout.NormalW = mul(vin.NormalL, (float3x3)gWorldInvTranspose);
 		
 	// Transform to homogeneous clip space.
-	vout.PosH = mul(float4(vin.PosL, 1.0f), gWorldViewProj);
+	vout.PosH = mul(PosW, gViewProj);
 	
 	return vout;
 }

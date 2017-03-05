@@ -13,27 +13,19 @@ struct ObjectConstants
 {
     XMMATRIX World;                    // Offset:    0, size:   64
     XMMATRIX WorldInvTranspose;        // Offset:   64, size:   64
-    XMMATRIX WorldViewProj;            // Offset:  128, size:   64
-    XMMATRIX TexTransform;             // Offset:  192, size:   64
-    Material Material;                 // Offset:  256, size:   64
-};
-
-struct MaterialConstants
-{
+    Material Material;                 // Offset:  128, size:   64
 };
 
 struct PassConstants
 {
     DirectionalLight DirLights[3];      // Offset:    0, size:  192
-    XMFLOAT3 EyePosW;                   // Offset:  192, size:   12
-    FLOAT FogStart;		                // Offset:  204, size:    4
-    FLOAT FogRange;					    // Offset:  208, size:    4
-	XMFLOAT3 pad;						// Offset:  212, size:   12
-    XMFLOAT4 FogColor;                  // Offset:  224, size:   16
+	XMMATRIX ViewProj;					// Offset:	192, size:   64
+    XMFLOAT3 EyePosW;                   // Offset:  256, size:   12
+    FLOAT FogStart;		                // Offset:  268, size:    4
 };
 
-static_assert(sizeof(PassConstants) == 240, "buffer size dismatch");
-static_assert(sizeof(ObjectConstants) == 320, "buffer size dismatch");
+static_assert(sizeof(PassConstants) == 272, "buffer size dismatch");
+static_assert(sizeof(ObjectConstants) == 192, "buffer size dismatch");
 
 // Stores the resources needed for the CPU to build the command lists
 // for a frame.  

@@ -119,12 +119,11 @@ private:
 	XMFLOAT4X4 mGridWorld;
 	XMFLOAT4X4 mSkullWorld;
 
-	XMFLOAT4X4 mView;
-	XMFLOAT4X4 mProj;
-
 	UINT mLightCount;
 
 	XMFLOAT3 mEyePosW;
+	XMFLOAT4X4 mProj;
+	XMFLOAT4X4 mViewProj;
 
 	float mTheta;
 	float mPhi;
@@ -161,8 +160,6 @@ LitSkullApp::LitSkullApp(HINSTANCE hInstance)
 
 	XMMATRIX I = XMMatrixIdentity();
 	XMStoreFloat4x4(&mGridWorld, I);
-	XMStoreFloat4x4(&mView, I);
-	XMStoreFloat4x4(&mProj, I);
 
 	XMMATRIX boxScale = XMMatrixScaling(3.0f, 1.0f, 3.0f);
 	XMMATRIX boxOffset = XMMatrixTranslation(0.0f, 0.5f, 0.0f);
@@ -333,30 +330,26 @@ void LitSkullApp::UpdateScene(float dt)
 	float z = mRadius*sinf(mPhi)*sinf(mTheta);
 	float y = mRadius*cosf(mPhi);
 
-	mEyePosW = XMFLOAT3(x, y, z);
-	UpdateMainPassCB();
-
 	// Build the view matrix.
 	XMVECTOR pos    = XMVectorSet(x, y, z, 1.0f);
 	XMVECTOR target = XMVectorZero();
 	XMVECTOR up     = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 
-	XMMATRIX V = XMMatrixLookAtLH(pos, target, up);
-	XMStoreFloat4x4(&mView, V);
-
-	XMMATRIX view  = XMLoadFloat4x4(&mView);
-	XMMATRIX proj  = XMLoadFloat4x4(&mProj);
+	XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
+	XMMATRIX proj = XMLoadFloat4x4(&mProj);
 	XMMATRIX viewProj = view*proj;
+
+	mEyePosW = XMFLOAT3(x, y, z);
+	XMStoreFloat4x4(&mViewProj, viewProj);
+	UpdateMainPassCB();
 
 	for (size_t i = 0; i < mAllRitems.size(); i++) {
 		XMMATRIX world = XMLoadFloat4x4(&mAllRitems[i]->World);
 		XMMATRIX worldInvTranspose = MathHelper::InverseTranspose(world);
-		XMMATRIX worldViewProj = world*view*proj;
 
 		ObjectConstants obj;
 		obj.World = world;
 		obj.WorldInvTranspose = worldInvTranspose;
-		obj.WorldViewProj = worldViewProj;
 		obj.Material = *mAllRitems[i]->Mat;
 		mCurrFrameResource->ObjectCB->CopyData(i, obj);
 	}
@@ -389,7 +382,7 @@ void LitSkullApp::DrawScene()
 	std::array<ID3D11Buffer*, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT>  ConstantBuffers;
 	ConstantBuffers[0] = mCurrFrameResource->ObjectCB->Resource();
 	ConstantBuffers[1] = mCurrFrameResource->PassCB->Resource();
-	md3dImmediateContext->VSSetConstantBuffers(0, 1, ConstantBuffers.data());
+	md3dImmediateContext->VSSetConstantBuffers(0, 2, ConstantBuffers.data());
 	md3dImmediateContext->PSSetConstantBuffers(0, 2, ConstantBuffers.data());
 
 	for (size_t i = 0; i < mAllRitems.size(); ++i) {
@@ -781,6 +774,8 @@ void LitSkullApp::UpdateMainPassCB()
 	frame.DirLights[2].Direction = XMFLOAT3(0.0f, -0.707f, -0.707f);
 
 	frame.EyePosW = mEyePosW;
+	frame.ViewProj = XMLoadFloat4x4(&mViewProj);
+
 	mCurrFrameResource->PassCB->CopyData(0, frame);
 	mCurrFrameResource->PassCB->UploadData(md3dImmediateContext, 0);
 }
