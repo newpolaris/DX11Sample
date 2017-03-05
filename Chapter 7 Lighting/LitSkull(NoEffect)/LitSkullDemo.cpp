@@ -360,8 +360,6 @@ void LitSkullApp::UpdateScene(float dt)
 		obj.Material = *mAllRitems[i]->Mat;
 		mCurrFrameResource->ObjectCB->CopyData(i, obj);
 	}
-	// Update
-	mCurrFrameResource->ObjectCB->UploadData(md3dImmediateContext);
 	//
 	// Switch the number of lights based on key presses.
 	//
@@ -386,11 +384,13 @@ void LitSkullApp::DrawScene()
 	md3dImmediateContext->IASetInputLayout(pLayout.Get());
 	md3dImmediateContext->VSSetShader(pVertexShader.Get(), nullptr, 0);
 	md3dImmediateContext->PSSetShader(pPixelShader.Get(), nullptr, 0);
+	md3dImmediateContext->GSSetShader(nullptr, nullptr, 0);
 
-	// PerFrame 은 2번째 slot임
-	std::array<ID3D11ShaderResourceView*, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT> ShaderResourceViews;
-	ShaderResourceViews[0] = mCurrFrameResource->PassCB->GetView(0);
-	md3dImmediateContext->PSSetShaderResources(1, 1, ShaderResourceViews.data());
+	std::array<ID3D11Buffer*, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT>  ConstantBuffers;
+	ConstantBuffers[0] = mCurrFrameResource->ObjectCB->Resource();
+	ConstantBuffers[1] = mCurrFrameResource->PassCB->Resource();
+	md3dImmediateContext->VSSetConstantBuffers(0, 1, ConstantBuffers.data());
+	md3dImmediateContext->PSSetConstantBuffers(0, 2, ConstantBuffers.data());
 
 	for (size_t i = 0; i < mAllRitems.size(); ++i) {
 		auto& ri = mAllRitems[i];
@@ -403,10 +403,8 @@ void LitSkullApp::DrawScene()
 		UINT vstride = geo->VertexByteStride, offset = 0;
 		md3dImmediateContext->IASetVertexBuffers(0, 1, &pvb, &vstride, &offset);
 
-		std::array<ID3D11ShaderResourceView*, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT> ShaderResourceViews;
-		ShaderResourceViews[0] = mCurrFrameResource->ObjectCB->GetView(i);
-		md3dImmediateContext->VSSetShaderResources(0, 1, ShaderResourceViews.data());
-		md3dImmediateContext->PSSetShaderResources(0, 1, ShaderResourceViews.data());
+		// Update
+		mCurrFrameResource->ObjectCB->UploadData(md3dImmediateContext, i);
 
 		md3dImmediateContext->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
 	}
@@ -784,5 +782,5 @@ void LitSkullApp::UpdateMainPassCB()
 
 	frame.EyePosW = mEyePosW;
 	mCurrFrameResource->PassCB->CopyData(0, frame);
-	mCurrFrameResource->PassCB->UploadData(md3dImmediateContext);
+	mCurrFrameResource->PassCB->UploadData(md3dImmediateContext, 0);
 }

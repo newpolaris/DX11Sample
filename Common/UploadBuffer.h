@@ -10,13 +10,9 @@ public:
     UploadBuffer(ID3D11Device* device, UINT elementCount, D3D11_SUBRESOURCE_DATA* data = nullptr) 
     {
         mElementByteSize = sizeof(T);
-		mElementCount = elementCount;
 
-		mUploadBuffer = d3dHelper::CreateStructuredBuffer(
-			device, elementCount, mElementByteSize, (data == nullptr), false, data);
-
-		for (UINT i = 0; i < elementCount; i++)
-			mView.emplace_back(d3dHelper::CreateSRV(device, mUploadBuffer.Get(), i, 1));
+		mUploadBuffer = d3dHelper::CreateConstantBuffer(
+			device, mElementByteSize);
 
 		mMappedData.assign(elementCount*mElementByteSize, 0);
     }
@@ -25,20 +21,17 @@ public:
     UploadBuffer& operator=(const UploadBuffer& rhs) = delete;
     ~UploadBuffer() {}
 
-    ID3D11Resource* Resource() const
+    ID3D11Buffer* Resource() const
     {
-        return mUploadBuffer.Get();
+        return static_cast<ID3D11Buffer*>(mUploadBuffer.Get());
     }
-	ID3D11ShaderResourceView* GetView(int index) {
-		return mView[index].Get();
-	}
 
     void CopyData(int elementIndex, const T& data)
     {
         memcpy(&mMappedData[elementIndex*mElementByteSize], &data, sizeof(T));
     }
 
-	void UploadData(ID3D11DeviceContext* context)
+	void UploadData(ID3D11DeviceContext* context, int elementIndex)
 	{
 		D3D11_MAPPED_SUBRESOURCE Data;
 		Data.pData = nullptr;
@@ -53,13 +46,12 @@ public:
 			D3D11_MAP_WRITE_DISCARD,
 			0,
 			&Data));
-		memcpy(Data.pData, mMappedData.data(), mElementCount*sizeof(T));
+		memcpy(Data.pData, &mMappedData[elementIndex*mElementByteSize], sizeof(T));
 		context->Unmap(pBuffer, subresourceID);
 	}
 
 private:
     Microsoft::WRL::ComPtr<ID3D11Resource> mUploadBuffer;
-    std::vector<Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>> mView;
     std::vector<BYTE> mMappedData;
     UINT mElementByteSize = 0, mElementCount = 0;
 };

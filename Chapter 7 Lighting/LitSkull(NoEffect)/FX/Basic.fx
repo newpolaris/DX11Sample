@@ -6,17 +6,7 @@
 
 #include "LightHelper.fx"
  
-struct cbPerFrame
-{
-	DirectionalLight gDirLights[3];
-	float3 gEyePosW;
-	float  gFogStart;
-	float  gFogRange;
-	float4 gFogColor;
-};
-StructuredBuffer<cbPerFrame> Frame : register(t1);
-
-struct cbPerObject
+cbuffer cbPerObject
 {
 	float4x4 gWorld;
 	float4x4 gWorldInvTranspose;
@@ -24,7 +14,15 @@ struct cbPerObject
 	float4x4 gTexTransform;
 	Material gMaterial;
 }; 
-StructuredBuffer<cbPerObject> Object : register(t0);
+
+cbuffer cbPerFrame 
+{
+	DirectionalLight gDirLights[3];
+	float3 gEyePosW;
+	float  gFogStart;
+	float  gFogRange;
+	float4 gFogColor;
+};
 
 // Nonnumeric values cannot be added to a cbuffer.
 Texture2D gDiffuseMap;
@@ -56,11 +54,11 @@ VertexOut VS(VertexIn vin)
 	VertexOut vout;
 	
 	// Transform to world space space.
-	vout.PosW    = mul(float4(vin.PosL, 1.0f), Object[0].gWorld).xyz;
-	vout.NormalW = mul(vin.NormalL, (float3x3)Object[0].gWorldInvTranspose);
+	vout.PosW    = mul(float4(vin.PosL, 1.0f), gWorld).xyz;
+	vout.NormalW = mul(vin.NormalL, (float3x3)gWorldInvTranspose);
 		
 	// Transform to homogeneous clip space.
-	vout.PosH = mul(float4(vin.PosL, 1.0f), Object[0].gWorldViewProj);
+	vout.PosH = mul(float4(vin.PosL, 1.0f), gWorldViewProj);
 	
 	return vout;
 }
@@ -71,7 +69,7 @@ float4 PS(VertexOut pin, uniform int gLightCount) : SV_Target
     pin.NormalW = normalize(pin.NormalW);
 
 	// The toEye vector is used in lighting.
-	float3 toEye = Frame[0].gEyePosW - pin.PosW;
+	float3 toEye = gEyePosW - pin.PosW;
 
 	// Cache the distance to the eye from this surface point.
 	float distToEye = length(toEye); 
@@ -94,7 +92,7 @@ float4 PS(VertexOut pin, uniform int gLightCount) : SV_Target
 	for(int i = 0; i < 3; ++i)
 	{
 		float4 A, D, S;
-		ComputeDirectionalLight(Object[0].gMaterial, Frame[0].gDirLights[i], pin.NormalW, toEye, 
+		ComputeDirectionalLight(gMaterial, gDirLights[i], pin.NormalW, toEye, 
 			A, D, S);
 
 		ambient += A;
@@ -105,7 +103,7 @@ float4 PS(VertexOut pin, uniform int gLightCount) : SV_Target
 	float4 litColor = ambient + diffuse + spec;
 
 	// Common to take alpha from diffuse material.
-	litColor.a = Object[0].gMaterial.Diffuse.a;
+	litColor.a = gMaterial.Diffuse.a;
 
     return litColor;
 }

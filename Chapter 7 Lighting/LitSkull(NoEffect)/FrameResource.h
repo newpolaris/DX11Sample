@@ -28,10 +28,11 @@ struct PassConstants
     XMFLOAT3 EyePosW;                   // Offset:  192, size:   12
     FLOAT FogStart;		                // Offset:  204, size:    4
     FLOAT FogRange;					    // Offset:  208, size:    4
-    XMFLOAT4 FogColor;                  // Offset:  212, size:   16
+	XMFLOAT3 pad;						// Offset:  212, size:   12
+    XMFLOAT4 FogColor;                  // Offset:  224, size:   16
 };
 
-static_assert(sizeof(PassConstants) == 228, "buffer size dismatch");
+static_assert(sizeof(PassConstants) == 240, "buffer size dismatch");
 static_assert(sizeof(ObjectConstants) == 320, "buffer size dismatch");
 
 // Stores the resources needed for the CPU to build the command lists
