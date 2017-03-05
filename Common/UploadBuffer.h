@@ -33,21 +33,7 @@ public:
 
 	void UploadData(ID3D11DeviceContext* context, int elementIndex)
 	{
-		D3D11_MAPPED_SUBRESOURCE Data;
-		Data.pData = nullptr;
-		Data.DepthPitch = Data.RowPitch = 0;
-
-		const int subresourceID = 0;
-
-		auto pBuffer = mUploadBuffer.Get();
-		ThrowIfFailed(context->Map(
-			pBuffer,
-			subresourceID,
-			D3D11_MAP_WRITE_DISCARD,
-			0,
-			&Data));
-		memcpy(Data.pData, &mMappedData[elementIndex*mElementByteSize], sizeof(T));
-		context->Unmap(pBuffer, subresourceID);
+		context->UpdateSubresource(mUploadBuffer.Get(), 0, nullptr, &mMappedData[elementIndex*mElementByteSize], sizeof(T), sizeof(T));
 	}
 
 private:

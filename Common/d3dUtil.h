@@ -140,7 +140,7 @@ public:
 		}
 		else
 		{
-			state.Usage = D3D11_USAGE_IMMUTABLE;
+			state.Usage = D3D11_USAGE_DEFAULT;
 			state.CPUAccessFlags = 0;
 		}
 		return state;
@@ -169,7 +169,7 @@ public:
 		ID3D11Device* device,
 		int size)
 	{
-		auto Desc = SetDefaultConstantBuffer(size, true);
+		auto Desc = SetDefaultConstantBuffer(size, false);
 		Microsoft::WRL::ComPtr<ID3D11Buffer> buffer;
 		HR(device->CreateBuffer(
 			&Desc,
