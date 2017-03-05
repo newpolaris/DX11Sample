@@ -85,10 +85,7 @@ private:
 	void BuildVertexLayout();
 	void BuildGeometry();
 	void BuildRenderItems();
-
 	void BuildFrameResources();
-
-	template<typename T> void UpdateVariable(std::string tag, T * data);
 
 private:
 	ComPtr<ID3D11VertexShader> pVertexShader;
@@ -98,7 +95,6 @@ private:
 	ComPtr<ID3DBlob> pPixelCompiledShader;
 	
 	ComPtr<ID3D11InputLayout> pLayout;
-	ComPtr<ID3D11Buffer> buffer;
 
 	ComPtr<ID3D11InputLayout> mInputLayout;
 
@@ -218,30 +214,28 @@ void BoxApp::DrawScene()
 	md3dImmediateContext->ClearDepthStencilView(mDepthStencilView, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 
 	md3dImmediateContext->IASetInputLayout(mInputLayout.Get());
+	md3dImmediateContext->VSSetShader(pVertexShader.Get(), nullptr, 0);
+	md3dImmediateContext->PSSetShader(pPixelShader.Get(), nullptr, 0);
 
-	for (auto& ri : mAllRitems) {
+	for (size_t i = 0; i < mAllRitems.size(); ++i) {
+		auto& ri = mAllRitems[i];
 		md3dImmediateContext->IASetPrimitiveTopology(ri->PrimitiveType);
 
 		auto geo = ri->Geo;
 		auto pib = static_cast<ID3D11Buffer*>(geo->IndexBufferGPU.Get());
-		auto ibType = geo->IndexFormat;
-		auto iStart = ri->StartIndexLocation;
-		md3dImmediateContext->IASetIndexBuffer(pib, ibType, iStart);
+		md3dImmediateContext->IASetIndexBuffer(pib, geo->IndexFormat, 0);
 
 		auto pvb = static_cast<ID3D11Buffer*>(geo->VertexBufferGPU.Get());
-		UINT vstride = geo->VertexByteStride, vstart = ri->BaseVertexLocation;
-		md3dImmediateContext->IASetVertexBuffers(0, 1, &pvb, &vstride, &vstart);
+		UINT vstride = geo->VertexByteStride, offset = 0;
+		md3dImmediateContext->IASetVertexBuffers(0, 1, &pvb, &vstride, &offset);
 
 		std::array<ID3D11ShaderResourceView*, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT> ShaderResourceViews;
-		ShaderResourceViews[0] = mCurrFrameResource->ObjectCB->GetView(0);
+		ShaderResourceViews[0] = mCurrFrameResource->ObjectCB->GetView(i);
 		md3dImmediateContext->VSSetShaderResources(0, 1, ShaderResourceViews.data());
+		md3dImmediateContext->PSSetShaderResources(0, 1, ShaderResourceViews.data());
+
+		md3dImmediateContext->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
 	}
-
-	md3dImmediateContext->VSSetShader(pVertexShader.Get(), nullptr, 0);
-	md3dImmediateContext->PSSetShader(pPixelShader.Get(), nullptr, 0);
-
-	// 36 indices for the box.
-	md3dImmediateContext->DrawIndexed(36, 0, 0);
 	HR(mSwapChain->Present(0, 0));
 }
 
@@ -298,18 +292,6 @@ void BoxApp::BuildFX()
 	pPixelCompiledShader = ShaderFactoryDX11::CompileShader(L"FX/color.fx", nullptr, "PS", "ps_5_0");
 	md3dDevice->CreatePixelShader(pPixelCompiledShader->GetBufferPointer(),
 		pPixelCompiledShader->GetBufferSize(), nullptr, pPixelShader.ReleaseAndGetAddressOf());
-
-	md3dDevice->CreateVertexShader(
-		pVertexCompiledShader->GetBufferPointer(),
-		pVertexCompiledShader->GetBufferSize(),
-		nullptr,
-		pVertexShader.ReleaseAndGetAddressOf());
-
-	md3dDevice->CreatePixelShader(
-		pPixelCompiledShader->GetBufferPointer(),
-		pPixelCompiledShader->GetBufferSize(),
-		nullptr,
-		pPixelShader.ReleaseAndGetAddressOf());
 }
 
 void BoxApp::BuildVertexLayout()

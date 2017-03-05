@@ -7,17 +7,18 @@ template<typename T>
 class UploadBuffer
 {
 public:
-    UploadBuffer(ID3D11Device* device, UINT elementCount) 
+    UploadBuffer(ID3D11Device* device, UINT elementCount, D3D11_SUBRESOURCE_DATA* data = nullptr) 
     {
         mElementByteSize = sizeof(T);
+		mElementCount = elementCount;
 
 		mUploadBuffer = d3dHelper::CreateStructuredBuffer(
-			device, elementCount, mElementByteSize, true, false, nullptr);
+			device, elementCount, mElementByteSize, (data == nullptr), false, data);
 
 		for (UINT i = 0; i < elementCount; i++)
 			mView.emplace_back(d3dHelper::CreateSRV(device, mUploadBuffer.Get(), i, 1));
 
-		mMappedData.resize(elementCount*mElementByteSize);
+		mMappedData.assign(elementCount*mElementByteSize, 0);
     }
 
     UploadBuffer(const UploadBuffer& rhs) = delete;
@@ -52,7 +53,7 @@ public:
 			D3D11_MAP_WRITE_DISCARD,
 			0,
 			&Data));
-		memcpy(Data.pData, mMappedData.data(), sizeof(T));
+		memcpy(Data.pData, mMappedData.data(), mElementCount*sizeof(T));
 		context->Unmap(pBuffer, subresourceID);
 	}
 
@@ -60,5 +61,5 @@ private:
     Microsoft::WRL::ComPtr<ID3D11Resource> mUploadBuffer;
     std::vector<Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>> mView;
     std::vector<BYTE> mMappedData;
-    UINT mElementByteSize = 0;
+    UINT mElementByteSize = 0, mElementCount = 0;
 };

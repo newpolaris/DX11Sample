@@ -6,17 +6,17 @@
 
 #include "LightHelper.fx"
  
-cbuffer cbPerFrame
+struct cbPerFrame
 {
 	DirectionalLight gDirLights[3];
 	float3 gEyePosW;
-
 	float  gFogStart;
 	float  gFogRange;
 	float4 gFogColor;
 };
+StructuredBuffer<cbPerFrame> Frame : register(t1);
 
-cbuffer cbPerObject
+struct cbPerObject
 {
 	float4x4 gWorld;
 	float4x4 gWorldInvTranspose;
@@ -24,6 +24,7 @@ cbuffer cbPerObject
 	float4x4 gTexTransform;
 	Material gMaterial;
 }; 
+StructuredBuffer<cbPerObject> Object : register(t0);
 
 // Nonnumeric values cannot be added to a cbuffer.
 Texture2D gDiffuseMap;
@@ -55,11 +56,11 @@ VertexOut VS(VertexIn vin)
 	VertexOut vout;
 	
 	// Transform to world space space.
-	vout.PosW    = mul(float4(vin.PosL, 1.0f), gWorld).xyz;
-	vout.NormalW = mul(vin.NormalL, (float3x3)gWorldInvTranspose);
+	vout.PosW    = mul(float4(vin.PosL, 1.0f), Object[0].gWorld).xyz;
+	vout.NormalW = mul(vin.NormalL, (float3x3)Object[0].gWorldInvTranspose);
 		
 	// Transform to homogeneous clip space.
-	vout.PosH = mul(float4(vin.PosL, 1.0f), gWorldViewProj);
+	vout.PosH = mul(float4(vin.PosL, 1.0f), Object[0].gWorldViewProj);
 	
 	return vout;
 }
@@ -70,7 +71,7 @@ float4 PS(VertexOut pin, uniform int gLightCount) : SV_Target
     pin.NormalW = normalize(pin.NormalW);
 
 	// The toEye vector is used in lighting.
-	float3 toEye = gEyePosW - pin.PosW;
+	float3 toEye = Frame[0].gEyePosW - pin.PosW;
 
 	// Cache the distance to the eye from this surface point.
 	float distToEye = length(toEye); 
@@ -90,10 +91,10 @@ float4 PS(VertexOut pin, uniform int gLightCount) : SV_Target
 
 	// Sum the light contribution from each light source.  
 	[unroll]
-	for(int i = 0; i < gLightCount; ++i)
+	for(int i = 0; i < 3; ++i)
 	{
 		float4 A, D, S;
-		ComputeDirectionalLight(gMaterial, gDirLights[i], pin.NormalW, toEye, 
+		ComputeDirectionalLight(Object[0].gMaterial, Frame[0].gDirLights[i], pin.NormalW, toEye, 
 			A, D, S);
 
 		ambient += A;
@@ -104,7 +105,7 @@ float4 PS(VertexOut pin, uniform int gLightCount) : SV_Target
 	float4 litColor = ambient + diffuse + spec;
 
 	// Common to take alpha from diffuse material.
-	litColor.a = gMaterial.Diffuse.a;
+	litColor.a = Object[0].gMaterial.Diffuse.a;
 
     return litColor;
 }

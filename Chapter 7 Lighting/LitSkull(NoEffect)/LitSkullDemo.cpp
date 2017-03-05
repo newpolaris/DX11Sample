@@ -15,8 +15,53 @@
 #include "GeometryGenerator.h"
 #include "MathHelper.h"
 #include "LightHelper.h"
-#include "Effects.h"
-#include "Vertex.h"
+#include "FrameResource.h"
+#include "ShaderFactoryDX11.h"
+
+#pragma comment(lib, "d3d11.lib")
+#pragma comment(lib, "D3DCompiler.lib")
+#pragma comment(lib, "dxerr.lib")
+#pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "dxguid.lib")
+#pragma comment(lib, "Gdi32.lib")
+
+#ifdef _DEBUG
+#pragma comment(lib, "d3dx11d.lib")
+#else
+#pragma comment(lib, "d3dx11.lib")
+#endif
+
+const int gNumFrameResources = 1;
+
+using Microsoft::WRL::ComPtr;
+
+// Lightweight structure stores parameters to draw a shape.  This will
+// vary from app-to-app.
+struct RenderItem
+{
+	RenderItem() = default;
+
+    // World matrix of the shape that describes the object's local space
+    // relative to the world space, which defines the position, orientation,
+    // and scale of the object in the world.
+    XMFLOAT4X4 World = MathHelper::Identity4x4();
+
+	XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
+
+	// Index into GPU constant buffer corresponding to the ObjectCB for this render item.
+	UINT ObjCBIndex = -1;
+
+	Material* Mat = nullptr;
+	MeshGeometry* Geo = nullptr;
+
+    // Primitive topology.
+    D3D11_PRIMITIVE_TOPOLOGY PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+
+    // DrawIndexedInstanced parameters.
+    UINT IndexCount = 0;
+    UINT StartIndexLocation = 0;
+    int BaseVertexLocation = 0;
+};
 
 class LitSkullApp : public D3DApp 
 {
@@ -34,17 +79,33 @@ public:
 	void OnMouseMove(WPARAM btnState, int x, int y);
 
 private:
+	void BuildFX();
+	void BuildVertexLayout();
 	void BuildShapeGeometryBuffers();
 	void BuildSkullGeometryBuffers();
+	void BuildGeometry();
+	void BuildRenderItems();
+	void BuildFrameResources();
+	void UpdateMainPassCB();
 
 private:
-	ID3D11Buffer* mShapesVB;
-	ID3D11Buffer* mShapesIB;
+	ComPtr<ID3D11VertexShader> pVertexShader;
+	ComPtr<ID3DBlob> pVertexCompiledShader;
 
-	ID3D11Buffer* mSkullVB;
-	ID3D11Buffer* mSkullIB;
+	ComPtr<ID3D11PixelShader> pPixelShader;
+	ComPtr<ID3DBlob> pPixelCompiledShader;
+	
+	ComPtr<ID3D11InputLayout> pLayout;
 
-	DirectionalLight mDirLights[3];
+    std::vector<std::unique_ptr<FrameResource>> mFrameResources;
+    FrameResource* mCurrFrameResource = nullptr;
+    int mCurrFrameResourceIndex = 0;
+
+	std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
+
+	// List of all the render items.
+	std::vector<std::unique_ptr<RenderItem>> mAllRitems;
+
 	Material mGridMat;
 	Material mBoxMat;
 	Material mCylinderMat;
@@ -60,23 +121,6 @@ private:
 
 	XMFLOAT4X4 mView;
 	XMFLOAT4X4 mProj;
-
-	int mBoxVertexOffset;
-	int mGridVertexOffset;
-	int mSphereVertexOffset;
-	int mCylinderVertexOffset;
-
-	UINT mBoxIndexOffset;
-	UINT mGridIndexOffset;
-	UINT mSphereIndexOffset;
-	UINT mCylinderIndexOffset;
-
-	UINT mBoxIndexCount;
-	UINT mGridIndexCount;
-	UINT mSphereIndexCount;
-	UINT mCylinderIndexCount;
-
-	UINT mSkullIndexCount;
 
 	UINT mLightCount;
 
@@ -107,7 +151,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
  
 
 LitSkullApp::LitSkullApp(HINSTANCE hInstance)
-: D3DApp(hInstance), mShapesVB(0), mShapesIB(0), mSkullVB(0), mSkullIB(0), mSkullIndexCount(0), mLightCount(1),
+: D3DApp(hInstance), mLightCount(1),
   mEyePosW(0.0f, 0.0f, 0.0f), mTheta(1.5f*MathHelper::Pi), mPhi(0.1f*MathHelper::Pi), mRadius(15.0f)
 {
 	mMainWndCaption = L"LitSkull Demo";
@@ -137,21 +181,6 @@ LitSkullApp::LitSkullApp(HINSTANCE hInstance)
 		XMStoreFloat4x4(&mSphereWorld[i*2+1], XMMatrixTranslation(+5.0f, 3.5f, -10.0f + i*5.0f));
 	}
 
-	mDirLights[0].Ambient  = XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
-	mDirLights[0].Diffuse  = XMFLOAT4(0.5f, 0.5f, 0.5f, 1.0f);
-	mDirLights[0].Specular = XMFLOAT4(0.5f, 0.5f, 0.5f, 1.0f);
-	mDirLights[0].Direction = XMFLOAT3(0.57735f, -0.57735f, 0.57735f);
-
-	mDirLights[1].Ambient  = XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
-	mDirLights[1].Diffuse  = XMFLOAT4(0.20f, 0.20f, 0.20f, 1.0f);
-	mDirLights[1].Specular = XMFLOAT4(0.25f, 0.25f, 0.25f, 1.0f);
-	mDirLights[1].Direction = XMFLOAT3(-0.57735f, -0.57735f, 0.57735f);
-
-	mDirLights[2].Ambient  = XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
-	mDirLights[2].Diffuse  = XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
-	mDirLights[2].Specular = XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
-	mDirLights[2].Direction = XMFLOAT3(0.0f, -0.707f, -0.707f);
-
 	mGridMat.Ambient  = XMFLOAT4(0.48f, 0.77f, 0.46f, 1.0f);
 	mGridMat.Diffuse  = XMFLOAT4(0.48f, 0.77f, 0.46f, 1.0f);
 	mGridMat.Specular = XMFLOAT4(0.2f, 0.2f, 0.2f, 16.0f);
@@ -175,26 +204,18 @@ LitSkullApp::LitSkullApp(HINSTANCE hInstance)
 
 LitSkullApp::~LitSkullApp()
 {
-	ReleaseCOM(mShapesVB);
-	ReleaseCOM(mShapesIB);
-	ReleaseCOM(mSkullVB);
-	ReleaseCOM(mSkullIB);
-
-	Effects::DestroyAll();
-	InputLayouts::DestroyAll(); 
 }
 
 bool LitSkullApp::Init()
 {
-	if(!D3DApp::Init())
+	if (!D3DApp::Init())
 		return false;
 
-	// Must init Effects first since InputLayouts depend on shader signatures.
-	Effects::InitAll(md3dDevice);
-	InputLayouts::InitAll(md3dDevice);
-
-	BuildShapeGeometryBuffers();
-	BuildSkullGeometryBuffers();
+	BuildFX();
+	BuildVertexLayout();
+	BuildGeometry();
+	BuildRenderItems();
+	BuildFrameResources();
 
 	return true;
 }
@@ -207,14 +228,113 @@ void LitSkullApp::OnResize()
 	XMStoreFloat4x4(&mProj, P);
 }
 
+void LitSkullApp::BuildFX()
+{
+	pVertexCompiledShader = ShaderFactoryDX11::CompileShader(L"FX/Basic.fx", nullptr, "VS", "vs_5_0");
+	md3dDevice->CreateVertexShader(pVertexCompiledShader->GetBufferPointer(),
+		pVertexCompiledShader->GetBufferSize(), nullptr, pVertexShader.ReleaseAndGetAddressOf());
+	pPixelCompiledShader = ShaderFactoryDX11::CompileShader(L"FX/Basic.fx", nullptr, "PS", "ps_5_0");
+	md3dDevice->CreatePixelShader(pPixelCompiledShader->GetBufferPointer(),
+		pPixelCompiledShader->GetBufferSize(), nullptr, pPixelShader.ReleaseAndGetAddressOf());
+
+	ComPtr<ID3D11ShaderReflection> reflection;
+	HR(D3DReflect(
+		pPixelCompiledShader->GetBufferPointer(),
+		pPixelCompiledShader->GetBufferSize(),
+		IID_ID3D11ShaderReflection,
+		reinterpret_cast<void**>(reflection.GetAddressOf())));
+
+	D3D11_SHADER_DESC shaderDesc;
+	reflection->GetDesc( &shaderDesc );
+	const UINT numCBuffers = shaderDesc.ConstantBuffers;
+
+	std::vector<D3D11_SHADER_BUFFER_DESC> buffers;
+
+	// Get the constant buffer information, which will be used for setting parameters
+	// for use by this shader at rendering time.
+
+	for ( UINT i = 0; i < shaderDesc.ConstantBuffers; i++ ) {
+		ID3D11ShaderReflectionConstantBuffer* pConstBuffer = reflection->GetConstantBufferByIndex(i);
+		
+		D3D11_SHADER_BUFFER_DESC bufferDesc;
+		pConstBuffer->GetDesc( &bufferDesc );
+		
+		if (bufferDesc.Type == D3D_CT_CBUFFER || bufferDesc.Type == D3D_CT_TBUFFER) {
+			// Load the description of each variable for use later on when binding a buffer
+			for (UINT j = 0; j < bufferDesc.Variables; j++) {
+				// Get the variable description and store it
+				ID3D11ShaderReflectionVariable* pVariable = pConstBuffer->GetVariableByIndex(j);
+				D3D11_SHADER_VARIABLE_DESC var_desc;
+				pVariable->GetDesc(&var_desc);
+
+				// BufferLayout.Variables.push_back( var_desc );
+
+				// Get the variable type description and store it
+				ID3D11ShaderReflectionType* pType = pVariable->GetType();
+				D3D11_SHADER_TYPE_DESC type_desc;
+				pType->GetDesc(&type_desc);
+
+				// BufferLayout.Types.push_back( type_desc );
+
+				// Get references to the parameters for binding to these variables.
+				/*
+				RenderParameterDX11* pParam = 0;
+				if ( type_desc.Class == D3D_SVC_VECTOR )
+				{
+					pParam = pParamMgr->GetVectorParameterRef( GlyphString::ToUnicode( std::string( var_desc.Name ) ) );
+				}
+				else if ( ( type_desc.Class == D3D_SVC_MATRIX_ROWS ) ||
+							( type_desc.Class == D3D_SVC_MATRIX_COLUMNS ) )
+				{
+					// Check if it is an array of matrices first...
+					unsigned int count = type_desc.Elements;
+					if ( count == 0 )
+					{
+						pParam = pParamMgr->GetMatrixParameterRef( GlyphString::ToUnicode( std::string( var_desc.Name ) ) );
+					}
+					else
+					{
+						pParam = pParamMgr->GetMatrixArrayParameterRef( GlyphString::ToUnicode( std::string( var_desc.Name ) ), count );
+					}
+				}
+
+				BufferLayout.Parameters.push_back( pParam );
+				*/
+			}
+		}
+		buffers.push_back(bufferDesc);
+	}
+}
+
+void LitSkullApp::BuildVertexLayout()
+{
+	// Create the vertex input layout.
+	std::vector<D3D11_INPUT_ELEMENT_DESC> inputLayout = {
+		{"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+		{"NORMAL",    0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0}
+	};
+
+	HR(md3dDevice->CreateInputLayout(
+		inputLayout.data(),
+		inputLayout.size(),
+		pVertexCompiledShader->GetBufferPointer(),
+		pVertexCompiledShader->GetBufferSize(),
+		pLayout.GetAddressOf()));
+}
+
 void LitSkullApp::UpdateScene(float dt)
 {
+    // Cycle through the circular frame resource array.
+    mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % gNumFrameResources;
+    mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
+
 	// Convert Spherical to Cartesian coordinates.
 	float x = mRadius*sinf(mPhi)*cosf(mTheta);
 	float z = mRadius*sinf(mPhi)*sinf(mTheta);
 	float y = mRadius*cosf(mPhi);
 
 	mEyePosW = XMFLOAT3(x, y, z);
+	UpdateMainPassCB();
 
 	// Build the view matrix.
 	XMVECTOR pos    = XMVectorSet(x, y, z, 1.0f);
@@ -224,6 +344,24 @@ void LitSkullApp::UpdateScene(float dt)
 	XMMATRIX V = XMMatrixLookAtLH(pos, target, up);
 	XMStoreFloat4x4(&mView, V);
 
+	XMMATRIX view  = XMLoadFloat4x4(&mView);
+	XMMATRIX proj  = XMLoadFloat4x4(&mProj);
+	XMMATRIX viewProj = view*proj;
+
+	for (size_t i = 0; i < mAllRitems.size(); i++) {
+		XMMATRIX world = XMLoadFloat4x4(&mAllRitems[i]->World);
+		XMMATRIX worldInvTranspose = MathHelper::InverseTranspose(world);
+		XMMATRIX worldViewProj = world*view*proj;
+
+		ObjectConstants obj;
+		obj.World = world;
+		obj.WorldInvTranspose = worldInvTranspose;
+		obj.WorldViewProj = worldViewProj;
+		obj.Material = *mAllRitems[i]->Mat;
+		mCurrFrameResource->ObjectCB->CopyData(i, obj);
+	}
+	// Update
+	mCurrFrameResource->ObjectCB->UploadData(md3dImmediateContext);
 	//
 	// Switch the number of lights based on key presses.
 	//
@@ -245,117 +383,33 @@ void LitSkullApp::DrawScene()
 	md3dImmediateContext->ClearRenderTargetView(mRenderTargetView, reinterpret_cast<const float*>(&Colors::LightSteelBlue));
 	md3dImmediateContext->ClearDepthStencilView(mDepthStencilView, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 
-	md3dImmediateContext->IASetInputLayout(InputLayouts::PosNormal);
-    md3dImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
- 
-	UINT stride = sizeof(Vertex::PosNormal);
-    UINT offset = 0;
- 
-	XMMATRIX view  = XMLoadFloat4x4(&mView);
-	XMMATRIX proj  = XMLoadFloat4x4(&mProj);
-	XMMATRIX viewProj = view*proj;
+	md3dImmediateContext->IASetInputLayout(pLayout.Get());
+	md3dImmediateContext->VSSetShader(pVertexShader.Get(), nullptr, 0);
+	md3dImmediateContext->PSSetShader(pPixelShader.Get(), nullptr, 0);
 
-	// Set per frame constants.
-	Effects::BasicFX->SetDirLights(mDirLights);
-	Effects::BasicFX->SetEyePosW(mEyePosW);
- 
-	// Figure out which technique to use.
-	ID3DX11EffectTechnique* activeTech = Effects::BasicFX->Light1Tech;
-	switch(mLightCount)
-	{
-	case 1:
-		activeTech = Effects::BasicFX->Light1Tech;
-		break;
-	case 2:
-		activeTech = Effects::BasicFX->Light2Tech;
-		break;
-	case 3:
-		activeTech = Effects::BasicFX->Light3Tech;
-		break;
+	// PerFrame 은 2번째 slot임
+	std::array<ID3D11ShaderResourceView*, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT> ShaderResourceViews;
+	ShaderResourceViews[0] = mCurrFrameResource->PassCB->GetView(0);
+	md3dImmediateContext->PSSetShaderResources(1, 1, ShaderResourceViews.data());
+
+	for (size_t i = 0; i < mAllRitems.size(); ++i) {
+		auto& ri = mAllRitems[i];
+		md3dImmediateContext->IASetPrimitiveTopology(ri->PrimitiveType);
+		auto geo = ri->Geo;
+		auto pib = static_cast<ID3D11Buffer*>(geo->IndexBufferGPU.Get());
+		md3dImmediateContext->IASetIndexBuffer(pib, geo->IndexFormat, 0);
+
+		auto pvb = static_cast<ID3D11Buffer*>(geo->VertexBufferGPU.Get());
+		UINT vstride = geo->VertexByteStride, offset = 0;
+		md3dImmediateContext->IASetVertexBuffers(0, 1, &pvb, &vstride, &offset);
+
+		std::array<ID3D11ShaderResourceView*, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT> ShaderResourceViews;
+		ShaderResourceViews[0] = mCurrFrameResource->ObjectCB->GetView(i);
+		md3dImmediateContext->VSSetShaderResources(0, 1, ShaderResourceViews.data());
+		md3dImmediateContext->PSSetShaderResources(0, 1, ShaderResourceViews.data());
+
+		md3dImmediateContext->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
 	}
-
-    D3DX11_TECHNIQUE_DESC techDesc;
-    activeTech->GetDesc( &techDesc );
-    for(UINT p = 0; p < techDesc.Passes; ++p)
-    {
-		md3dImmediateContext->IASetVertexBuffers(0, 1, &mShapesVB, &stride, &offset);
-		md3dImmediateContext->IASetIndexBuffer(mShapesIB, DXGI_FORMAT_R32_UINT, 0);
-
-		// Draw the grid.
-		XMMATRIX world = XMLoadFloat4x4(&mGridWorld);
-		XMMATRIX worldInvTranspose = MathHelper::InverseTranspose(world);
-		XMMATRIX worldViewProj = world*view*proj;
-
-		Effects::BasicFX->SetWorld(world);
-		Effects::BasicFX->SetWorldInvTranspose(worldInvTranspose);
-		Effects::BasicFX->SetWorldViewProj(worldViewProj);
-		Effects::BasicFX->SetMaterial(mGridMat);
-
-		activeTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
-		md3dImmediateContext->DrawIndexed(mGridIndexCount, mGridIndexOffset, mGridVertexOffset);
-
-		// Draw the box.
-		world = XMLoadFloat4x4(&mBoxWorld);
-		worldInvTranspose = MathHelper::InverseTranspose(world);
-		worldViewProj = world*view*proj;
-
-		Effects::BasicFX->SetWorld(world);
-		Effects::BasicFX->SetWorldInvTranspose(worldInvTranspose);
-		Effects::BasicFX->SetWorldViewProj(worldViewProj);
-		Effects::BasicFX->SetMaterial(mBoxMat);
-
-		activeTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
-		md3dImmediateContext->DrawIndexed(mBoxIndexCount, mBoxIndexOffset, mBoxVertexOffset);
-
-		// Draw the cylinders.
-		for(int i = 0; i < 10; ++i)
-		{
-			world = XMLoadFloat4x4(&mCylWorld[i]);
-			worldInvTranspose = MathHelper::InverseTranspose(world);
-			worldViewProj = world*view*proj;
-
-			Effects::BasicFX->SetWorld(world);
-			Effects::BasicFX->SetWorldInvTranspose(worldInvTranspose);
-			Effects::BasicFX->SetWorldViewProj(worldViewProj);
-			Effects::BasicFX->SetMaterial(mCylinderMat);
-
-			activeTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
-			md3dImmediateContext->DrawIndexed(mCylinderIndexCount, mCylinderIndexOffset, mCylinderVertexOffset);
-		}
-
-		// Draw the spheres.
-		for(int i = 0; i < 10; ++i)
-		{
-			world = XMLoadFloat4x4(&mSphereWorld[i]);
-			worldInvTranspose = MathHelper::InverseTranspose(world);
-			worldViewProj = world*view*proj;
-
-			Effects::BasicFX->SetWorld(world);
-			Effects::BasicFX->SetWorldInvTranspose(worldInvTranspose);
-			Effects::BasicFX->SetWorldViewProj(worldViewProj);
-			Effects::BasicFX->SetMaterial(mSphereMat);
-
-			activeTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
-			md3dImmediateContext->DrawIndexed(mSphereIndexCount, mSphereIndexOffset, mSphereVertexOffset);
-		}
-
-		// Draw the skull.
-
-		md3dImmediateContext->IASetVertexBuffers(0, 1, &mSkullVB, &stride, &offset);
-		md3dImmediateContext->IASetIndexBuffer(mSkullIB, DXGI_FORMAT_R32_UINT, 0);
-
-		world = XMLoadFloat4x4(&mSkullWorld);
-		worldInvTranspose = MathHelper::InverseTranspose(world);
-		worldViewProj = world*view*proj;
-
-		Effects::BasicFX->SetWorld(world);
-		Effects::BasicFX->SetWorldInvTranspose(worldInvTranspose);
-		Effects::BasicFX->SetWorldViewProj(worldViewProj);
-		Effects::BasicFX->SetMaterial(mSkullMat);
-
-		activeTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
-		md3dImmediateContext->DrawIndexed(mSkullIndexCount, 0, 0);
-    }
 
 	HR(mSwapChain->Present(0, 0));
 }
@@ -405,6 +459,12 @@ void LitSkullApp::OnMouseMove(WPARAM btnState, int x, int y)
 	mLastMousePos.y = y;
 }
 
+void LitSkullApp::BuildGeometry()
+{
+	BuildShapeGeometryBuffers();
+	BuildSkullGeometryBuffers();
+}
+
 void LitSkullApp::BuildShapeGeometryBuffers()
 {
 	GeometryGenerator::MeshData box;
@@ -419,22 +479,42 @@ void LitSkullApp::BuildShapeGeometryBuffers()
 	geoGen.CreateCylinder(0.5f, 0.3f, 3.0f, 20, 20, cylinder);
 
 	// Cache the vertex offsets to each object in the concatenated vertex buffer.
-	mBoxVertexOffset      = 0;
-	mGridVertexOffset     = box.Vertices.size();
-	mSphereVertexOffset   = mGridVertexOffset + grid.Vertices.size();
-	mCylinderVertexOffset = mSphereVertexOffset + sphere.Vertices.size();
+	auto boxVertexOffset = 0;
+	auto gridVertexOffset = box.Vertices.size();
+	auto sphereVertexOffset = gridVertexOffset + grid.Vertices.size();
+	auto cylinderVertexOffset = sphereVertexOffset + sphere.Vertices.size();
 
 	// Cache the index count of each object.
-	mBoxIndexCount      = box.Indices.size();
-	mGridIndexCount     = grid.Indices.size();
-	mSphereIndexCount   = sphere.Indices.size();
-	mCylinderIndexCount = cylinder.Indices.size();
+	auto boxIndexCount = box.Indices.size();
+	auto gridIndexCount = grid.Indices.size();
+	auto sphereIndexCount = sphere.Indices.size();
+	auto cylinderIndexCount = cylinder.Indices.size();
 
 	// Cache the starting index for each object in the concatenated index buffer.
-	mBoxIndexOffset      = 0;
-	mGridIndexOffset     = mBoxIndexCount;
-	mSphereIndexOffset   = mGridIndexOffset + mGridIndexCount;
-	mCylinderIndexOffset = mSphereIndexOffset + mSphereIndexCount;
+	auto boxIndexOffset = 0;
+	auto gridIndexOffset = boxIndexCount;
+	auto sphereIndexOffset = gridIndexOffset + gridIndexCount;
+	auto cylinderIndexOffset = sphereIndexOffset + sphereIndexCount;
+
+	SubmeshGeometry boxSubmesh;
+	boxSubmesh.IndexCount = (UINT)box.Indices.size();
+	boxSubmesh.StartIndexLocation = boxIndexOffset;
+	boxSubmesh.BaseVertexLocation = boxVertexOffset;
+
+	SubmeshGeometry gridSubmesh;
+	gridSubmesh.IndexCount = (UINT)grid.Indices.size();
+	gridSubmesh.StartIndexLocation = gridIndexOffset;
+	gridSubmesh.BaseVertexLocation = gridVertexOffset;
+
+	SubmeshGeometry sphereSubmesh;
+	sphereSubmesh.IndexCount = (UINT)sphere.Indices.size();
+	sphereSubmesh.StartIndexLocation = sphereIndexOffset;
+	sphereSubmesh.BaseVertexLocation = sphereVertexOffset;
+
+	SubmeshGeometry cylinderSubmesh;
+	cylinderSubmesh.IndexCount = (UINT)cylinder.Indices.size();
+	cylinderSubmesh.StartIndexLocation = cylinderIndexOffset;
+	cylinderSubmesh.BaseVertexLocation = cylinderVertexOffset;
 	
 	UINT totalVertexCount = 
 		box.Vertices.size() + 
@@ -443,17 +523,16 @@ void LitSkullApp::BuildShapeGeometryBuffers()
 		cylinder.Vertices.size();
 
 	UINT totalIndexCount = 
-		mBoxIndexCount + 
-		mGridIndexCount + 
-		mSphereIndexCount +
-		mCylinderIndexCount;
+		boxSubmesh.IndexCount + 
+		gridSubmesh.IndexCount + 
+		sphereSubmesh.IndexCount +
+		cylinderSubmesh.IndexCount;
 
 	//
 	// Extract the vertex elements we are interested in and pack the
 	// vertices of all the meshes into one vertex buffer.
 	//
-
-	std::vector<Vertex::PosNormal> vertices(totalVertexCount);
+	std::vector<Vertex> vertices(totalVertexCount);
 
 	UINT k = 0;
 	for(size_t i = 0; i < box.Vertices.size(); ++i, ++k)
@@ -480,35 +559,36 @@ void LitSkullApp::BuildShapeGeometryBuffers()
 		vertices[k].Normal = cylinder.Vertices[i].Normal;
 	}
 
-    D3D11_BUFFER_DESC vbd;
-    vbd.Usage = D3D11_USAGE_IMMUTABLE;
-    vbd.ByteWidth = sizeof(Vertex::PosNormal) * totalVertexCount;
-    vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    vbd.CPUAccessFlags = 0;
-    vbd.MiscFlags = 0;
-    D3D11_SUBRESOURCE_DATA vinitData;
-    vinitData.pSysMem = &vertices[0];
-    HR(md3dDevice->CreateBuffer(&vbd, &vinitData, &mShapesVB));
-
 	//
 	// Pack the indices of all the meshes into one index buffer.
 	//
-
 	std::vector<UINT> indices;
 	indices.insert(indices.end(), box.Indices.begin(), box.Indices.end());
 	indices.insert(indices.end(), grid.Indices.begin(), grid.Indices.end());
 	indices.insert(indices.end(), sphere.Indices.begin(), sphere.Indices.end());
 	indices.insert(indices.end(), cylinder.Indices.begin(), cylinder.Indices.end());
 
-	D3D11_BUFFER_DESC ibd;
-    ibd.Usage = D3D11_USAGE_IMMUTABLE;
-    ibd.ByteWidth = sizeof(UINT) * totalIndexCount;
-    ibd.BindFlags = D3D11_BIND_INDEX_BUFFER;
-    ibd.CPUAccessFlags = 0;
-    ibd.MiscFlags = 0;
-    D3D11_SUBRESOURCE_DATA iinitData;
-    iinitData.pSysMem = &indices[0];
-    HR(md3dDevice->CreateBuffer(&ibd, &iinitData, &mShapesIB));
+	const UINT vbByteSize = sizeof(Vertex)*vertices.size();
+	const UINT ibByteSize = sizeof(UINT)*indices.size();
+
+	auto geo = std::make_unique<MeshGeometry>();
+	geo->Name = "shapeGeo";
+	geo->VertexBufferGPU = d3dHelper::CreateVertexBuffer(
+		md3dDevice, vertices.data(), vbByteSize);
+	geo->IndexBufferGPU = d3dHelper::CreateIndexBuffer(
+		md3dDevice, indices.data(), ibByteSize);
+
+	geo->VertexByteStride = sizeof(Vertex);
+	geo->VertexBufferByteSize = vbByteSize;
+	geo->IndexFormat = DXGI_FORMAT_R32_UINT;
+	geo->IndexBufferByteSize = ibByteSize;
+
+	geo->DrawArgs["box"] = boxSubmesh;
+	geo->DrawArgs["grid"] = gridSubmesh;
+	geo->DrawArgs["sphere"] = sphereSubmesh;
+	geo->DrawArgs["cylinder"] = cylinderSubmesh;
+
+	mGeometries[geo->Name] = std::move(geo);
 }
  
 void LitSkullApp::BuildSkullGeometryBuffers()
@@ -529,7 +609,7 @@ void LitSkullApp::BuildSkullGeometryBuffers()
 	fin >> ignore >> tcount;
 	fin >> ignore >> ignore >> ignore >> ignore;
 	
-	std::vector<Vertex::PosNormal> vertices(vcount);
+	std::vector<Vertex> vertices(vcount);
 	for(UINT i = 0; i < vcount; ++i)
 	{
 		fin >> vertices[i].Pos.x >> vertices[i].Pos.y >> vertices[i].Pos.z;
@@ -540,8 +620,8 @@ void LitSkullApp::BuildSkullGeometryBuffers()
 	fin >> ignore;
 	fin >> ignore;
 
-	mSkullIndexCount = 3*tcount;
-	std::vector<UINT> indices(mSkullIndexCount);
+	auto SkullIndexCount = 3*tcount;
+	std::vector<UINT> indices(SkullIndexCount);
 	for(UINT i = 0; i < tcount; ++i)
 	{
 		fin >> indices[i*3+0] >> indices[i*3+1] >> indices[i*3+2];
@@ -549,28 +629,160 @@ void LitSkullApp::BuildSkullGeometryBuffers()
 
 	fin.close();
 
-    D3D11_BUFFER_DESC vbd;
-    vbd.Usage = D3D11_USAGE_IMMUTABLE;
-	vbd.ByteWidth = sizeof(Vertex::PosNormal) * vcount;
-    vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    vbd.CPUAccessFlags = 0;
-    vbd.MiscFlags = 0;
-    D3D11_SUBRESOURCE_DATA vinitData;
-    vinitData.pSysMem = &vertices[0];
-    HR(md3dDevice->CreateBuffer(&vbd, &vinitData, &mSkullVB));
+	const UINT vbByteSize = sizeof(Vertex)*vertices.size();
+	const UINT ibByteSize = sizeof(UINT)*indices.size();
 
-	//
-	// Pack the indices of all the meshes into one index buffer.
-	//
+	auto geo = std::make_unique<MeshGeometry>();
+	geo->Name = "skull";
+	geo->VertexBufferGPU = d3dHelper::CreateVertexBuffer(
+		md3dDevice, vertices.data(), vbByteSize);
+	geo->IndexBufferGPU = d3dHelper::CreateIndexBuffer(
+		md3dDevice, indices.data(), ibByteSize);
 
-	D3D11_BUFFER_DESC ibd;
-    ibd.Usage = D3D11_USAGE_IMMUTABLE;
-	ibd.ByteWidth = sizeof(UINT) * mSkullIndexCount;
-    ibd.BindFlags = D3D11_BIND_INDEX_BUFFER;
-    ibd.CPUAccessFlags = 0;
-    ibd.MiscFlags = 0;
-    D3D11_SUBRESOURCE_DATA iinitData;
-	iinitData.pSysMem = &indices[0];
-    HR(md3dDevice->CreateBuffer(&ibd, &iinitData, &mSkullIB));
+	geo->VertexByteStride = sizeof(Vertex);
+	geo->VertexBufferByteSize = vbByteSize;
+	geo->IndexFormat = DXGI_FORMAT_R32_UINT;
+	geo->IndexBufferByteSize = ibByteSize;
+
+	SubmeshGeometry skull;
+	skull.IndexCount = (UINT)indices.size();
+	skull.StartIndexLocation = 0;
+	skull.BaseVertexLocation = 0;
+
+	geo->DrawArgs["skull"] = skull;
+	mGeometries[geo->Name] = std::move(geo);
 }
 
+void LitSkullApp::BuildRenderItems()
+{
+	auto gridRitem = std::make_unique<RenderItem>();
+	gridRitem->ObjCBIndex = 0;
+	gridRitem->Geo = mGeometries["shapeGeo"].get();
+	gridRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	gridRitem->IndexCount = gridRitem->Geo->DrawArgs["grid"].IndexCount;
+	gridRitem->StartIndexLocation = gridRitem->Geo->DrawArgs["grid"].StartIndexLocation;
+	gridRitem->BaseVertexLocation = gridRitem->Geo->DrawArgs["grid"].BaseVertexLocation;
+	gridRitem->World = mGridWorld;
+	gridRitem->Mat = &mGridMat;
+	mAllRitems.push_back(std::move(gridRitem));
+
+	auto boxRitem = std::make_unique<RenderItem>();
+	boxRitem->ObjCBIndex = 1;
+	boxRitem->Geo = mGeometries["shapeGeo"].get();
+	boxRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
+	boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["box"].StartIndexLocation;
+	boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
+	boxRitem->World = mBoxWorld;
+	boxRitem->Mat = &mBoxMat;
+	mAllRitems.push_back(std::move(boxRitem));
+
+	auto skullRitem = std::make_unique<RenderItem>();
+	skullRitem->ObjCBIndex = 2;
+	skullRitem->Geo = mGeometries["skull"].get();
+	skullRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	skullRitem->IndexCount = skullRitem->Geo->DrawArgs["skull"].IndexCount;
+	skullRitem->StartIndexLocation = skullRitem->Geo->DrawArgs["skull"].StartIndexLocation;
+	skullRitem->BaseVertexLocation = skullRitem->Geo->DrawArgs["skull"].BaseVertexLocation;
+	skullRitem->World = mSkullWorld;
+	skullRitem->Mat = &mSkullMat;
+	mAllRitems.push_back(std::move(skullRitem));
+
+	XMMATRIX brickTexTransform = XMMatrixScaling(1.0f, 1.0f, 1.0f);
+	UINT objCBIndex = 3;
+	for(int i = 0; i < 5; ++i)
+	{
+		auto leftCylRitem = std::make_unique<RenderItem>();
+		auto rightCylRitem = std::make_unique<RenderItem>();
+		auto leftSphereRitem = std::make_unique<RenderItem>();
+		auto rightSphereRitem = std::make_unique<RenderItem>();
+
+		XMMATRIX leftCylWorld = XMMatrixTranslation(-5.0f, 1.5f, -10.0f + i*5.0f);
+		XMMATRIX rightCylWorld = XMMatrixTranslation(+5.0f, 1.5f, -10.0f + i*5.0f);
+
+		XMMATRIX leftSphereWorld = XMMatrixTranslation(-5.0f, 3.5f, -10.0f + i*5.0f);
+		XMMATRIX rightSphereWorld = XMMatrixTranslation(+5.0f, 3.5f, -10.0f + i*5.0f);
+
+		XMStoreFloat4x4(&leftCylRitem->World, rightCylWorld);
+		XMStoreFloat4x4(&leftCylRitem->TexTransform, brickTexTransform);
+		leftCylRitem->ObjCBIndex = objCBIndex++;
+		leftCylRitem->Mat = &mCylinderMat;
+		leftCylRitem->Geo = mGeometries["shapeGeo"].get();
+		leftCylRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+		leftCylRitem->IndexCount = leftCylRitem->Geo->DrawArgs["cylinder"].IndexCount;
+		leftCylRitem->StartIndexLocation = leftCylRitem->Geo->DrawArgs["cylinder"].StartIndexLocation;
+		leftCylRitem->BaseVertexLocation = leftCylRitem->Geo->DrawArgs["cylinder"].BaseVertexLocation;
+		leftCylRitem->World = mCylWorld[2*i];
+
+		XMStoreFloat4x4(&rightCylRitem->World, leftCylWorld);
+		XMStoreFloat4x4(&rightCylRitem->TexTransform, brickTexTransform);
+		rightCylRitem->ObjCBIndex = objCBIndex++;
+		rightCylRitem->Mat = &mCylinderMat;
+		rightCylRitem->Geo = mGeometries["shapeGeo"].get();
+		rightCylRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+		rightCylRitem->IndexCount = rightCylRitem->Geo->DrawArgs["cylinder"].IndexCount;
+		rightCylRitem->StartIndexLocation = rightCylRitem->Geo->DrawArgs["cylinder"].StartIndexLocation;
+		rightCylRitem->BaseVertexLocation = rightCylRitem->Geo->DrawArgs["cylinder"].BaseVertexLocation;
+		rightCylRitem->World = mCylWorld[2*i+1];
+
+		XMStoreFloat4x4(&leftSphereRitem->World, leftSphereWorld);
+		leftSphereRitem->TexTransform = MathHelper::Identity4x4();
+		leftSphereRitem->ObjCBIndex = objCBIndex++;
+		leftSphereRitem->Mat = &mSphereMat;
+		leftSphereRitem->Geo = mGeometries["shapeGeo"].get();
+		leftSphereRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+		leftSphereRitem->IndexCount = leftSphereRitem->Geo->DrawArgs["sphere"].IndexCount;
+		leftSphereRitem->StartIndexLocation = leftSphereRitem->Geo->DrawArgs["sphere"].StartIndexLocation;
+		leftSphereRitem->BaseVertexLocation = leftSphereRitem->Geo->DrawArgs["sphere"].BaseVertexLocation;
+		leftSphereRitem->World = mSphereWorld[2*i];
+
+		XMStoreFloat4x4(&rightSphereRitem->World, rightSphereWorld);
+		rightSphereRitem->TexTransform = MathHelper::Identity4x4();
+		rightSphereRitem->ObjCBIndex = objCBIndex++;
+		rightSphereRitem->Mat = &mSphereMat;
+		rightSphereRitem->Geo = mGeometries["shapeGeo"].get();
+		rightSphereRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+		rightSphereRitem->IndexCount = rightSphereRitem->Geo->DrawArgs["sphere"].IndexCount;
+		rightSphereRitem->StartIndexLocation = rightSphereRitem->Geo->DrawArgs["sphere"].StartIndexLocation;
+		rightSphereRitem->BaseVertexLocation = rightSphereRitem->Geo->DrawArgs["sphere"].BaseVertexLocation;
+		rightSphereRitem->World = mSphereWorld[2*i+1];
+
+		mAllRitems.push_back(std::move(leftCylRitem));
+		mAllRitems.push_back(std::move(rightCylRitem));
+		mAllRitems.push_back(std::move(leftSphereRitem));
+		mAllRitems.push_back(std::move(rightSphereRitem));
+	}
+
+}
+ 
+void LitSkullApp::BuildFrameResources()
+{
+    for(int i = 0; i < gNumFrameResources; ++i)
+    {
+        mFrameResources.push_back(std::make_unique<FrameResource>(
+			md3dDevice, 1, (UINT)mAllRitems.size(), 1));
+    }
+}
+
+void LitSkullApp::UpdateMainPassCB()
+{
+	PassConstants frame;
+	frame.DirLights[0].Ambient = XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
+	frame.DirLights[0].Diffuse = XMFLOAT4(0.5f, 0.5f, 0.5f, 1.0f);
+	frame.DirLights[0].Specular = XMFLOAT4(0.5f, 0.5f, 0.5f, 1.0f);
+	frame.DirLights[0].Direction = XMFLOAT3(0.57735f, -0.57735f, 0.57735f);
+
+	frame.DirLights[1].Ambient = XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
+	frame.DirLights[1].Diffuse = XMFLOAT4(0.20f, 0.20f, 0.20f, 1.0f);
+	frame.DirLights[1].Specular = XMFLOAT4(0.25f, 0.25f, 0.25f, 1.0f);
+	frame.DirLights[1].Direction = XMFLOAT3(-0.57735f, -0.57735f, 0.57735f);
+
+	frame.DirLights[2].Ambient = XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
+	frame.DirLights[2].Diffuse = XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
+	frame.DirLights[2].Specular = XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
+	frame.DirLights[2].Direction = XMFLOAT3(0.0f, -0.707f, -0.707f);
+
+	frame.EyePosW = mEyePosW;
+	mCurrFrameResource->PassCB->CopyData(0, frame);
+	mCurrFrameResource->PassCB->UploadData(md3dImmediateContext);
+}
