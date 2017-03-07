@@ -179,15 +179,15 @@ LitSkullApp::LitSkullApp(HINSTANCE hInstance)
 	}
 
 	mGridMat.Ambient  = XMFLOAT4(0.48f, 0.77f, 0.46f, 1.0f);
-	mGridMat.Diffuse  = XMFLOAT4(0.48f, 0.77f, 0.46f, 1.0f);
+	XMStoreFloat4(&mGridMat.Diffuse, Colors::LightGray);
 	mGridMat.Specular = XMFLOAT4(0.2f, 0.2f, 0.2f, 16.0f);
 
 	mCylinderMat.Ambient  = XMFLOAT4(0.7f, 0.85f, 0.7f, 1.0f);
-	mCylinderMat.Diffuse  = XMFLOAT4(0.7f, 0.85f, 0.7f, 1.0f);
+	XMStoreFloat4(&mCylinderMat.Diffuse, Colors::ForestGreen);
 	mCylinderMat.Specular = XMFLOAT4(0.8f, 0.8f, 0.8f, 16.0f);
 
 	mSphereMat.Ambient  = XMFLOAT4(0.1f, 0.2f, 0.3f, 1.0f);
-	mSphereMat.Diffuse  = XMFLOAT4(0.2f, 0.4f, 0.6f, 1.0f);
+	XMStoreFloat4(&mSphereMat.Diffuse, Colors::LightSteelBlue);
 	mSphereMat.Specular = XMFLOAT4(0.9f, 0.9f, 0.9f, 16.0f);
 
 	mBoxMat.Ambient  = XMFLOAT4(0.651f, 0.5f, 0.392f, 1.0f);
@@ -195,7 +195,7 @@ LitSkullApp::LitSkullApp(HINSTANCE hInstance)
 	mBoxMat.Specular = XMFLOAT4(0.2f, 0.2f, 0.2f, 16.0f);
 
 	mSkullMat.Ambient  = XMFLOAT4(0.8f, 0.8f, 0.8f, 1.0f);
-	mSkullMat.Diffuse  = XMFLOAT4(0.8f, 0.8f, 0.8f, 1.0f);
+	mSkullMat.Diffuse  = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	mSkullMat.Specular = XMFLOAT4(0.8f, 0.8f, 0.8f, 16.0f);
 }
 
@@ -788,6 +788,7 @@ void LitSkullApp::UpdateMainPassCB()
 
 	frame.EyePosW = mEyePosW;
 	frame.ViewProj = XMLoadFloat4x4(&mViewProj);
+	frame.LightCount = mLightCount;
 
 	mCurrFrameResource->PassCB->CopyData(0, frame);
 	mCurrFrameResource->PassCB->UploadData(md3dImmediateContext, 0);

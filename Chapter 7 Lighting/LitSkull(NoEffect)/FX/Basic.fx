@@ -19,6 +19,8 @@ cbuffer cbPerFrame
 	float4x4 gViewProj;
 	float3 gEyePosW;
 	float  gFogStart;
+	uniform int gLightCount;
+	float3 pad;
 };
 
 // Nonnumeric values cannot be added to a cbuffer.
@@ -61,7 +63,7 @@ VertexOut VS(VertexIn vin)
 	return vout;
 }
  
-float4 PS(VertexOut pin, uniform int gLightCount) : SV_Target
+float4 PS(VertexOut pin) : SV_Target
 {
 	// Interpolating normal can unnormalize it, so normalize it.
     pin.NormalW = normalize(pin.NormalW);
@@ -87,7 +89,7 @@ float4 PS(VertexOut pin, uniform int gLightCount) : SV_Target
 
 	// Sum the light contribution from each light source.  
 	[unroll]
-	for(int i = 0; i < 3; ++i)
+	for(int i = 0; i < gLightCount; ++i)
 	{
 		float4 A, D, S;
 		ComputeDirectionalLight(gMaterial, gDirLights[i], pin.NormalW, toEye, 

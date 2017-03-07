@@ -22,9 +22,11 @@ struct PassConstants
 	XMMATRIX ViewProj;					// Offset:	192, size:   64
     XMFLOAT3 EyePosW;                   // Offset:  256, size:   12
     FLOAT FogStart;		                // Offset:  268, size:    4
+	UINT LightCount;  					// Offset:  272, size:    4
+	XMFLOAT3 pad;
 };
 
-static_assert(sizeof(PassConstants) == 272, "buffer size dismatch");
+static_assert(sizeof(PassConstants) == 288, "buffer size dismatch");
 static_assert(sizeof(ObjectConstants) == 192, "buffer size dismatch");
 
 // Stores the resources needed for the CPU to build the command lists
