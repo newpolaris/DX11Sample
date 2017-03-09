@@ -23,6 +23,7 @@ cbuffer cbPerObject : register(b0)
 {
 	float4x4 gWorld;
 	float4x4 gWorldInvTranspose;
+	float4x4 gTexTransform;
 }; 
 
 cbuffer cbMaterial : register(b1)
@@ -60,21 +61,19 @@ cbuffer cbPass : register(b2)
 };
 
 // Nonnumeric values cannot be added to a cbuffer.
-Texture2D gDiffuseMap;
+#ifdef TEXTURE
+Texture2D gDiffuseMap : register(t0);
+#endif
 
-SamplerState samAnisotropic
-{
-	Filter = ANISOTROPIC;
-	MaxAnisotropy = 4;
-
-	AddressU = WRAP;
-	AddressV = WRAP;
-};
+SamplerState samAnisotropic : register(s0);
 
 struct VertexIn
 {
 	float3 PosL    : POSITION;
 	float3 NormalL : NORMAL;
+#ifdef TEXTURE
+	float2 TexC    : TEXCOORD;
+#endif
 };
 
 struct VertexOut
@@ -82,6 +81,9 @@ struct VertexOut
 	float4 PosH    : SV_POSITION;
     float3 PosW    : POSITION;
     float3 NormalW : NORMAL;
+#ifdef TEXTURE
+	float2 TexC    : TEXCOORD;
+#endif
 };
 
 VertexOut VS(VertexIn vin)
@@ -94,14 +96,25 @@ VertexOut VS(VertexIn vin)
 
 	vout.NormalW = mul(vin.NormalL, (float3x3)gWorldInvTranspose);
 		
-	// Transform to homogeneous clip space.
 	vout.PosH = mul(PosW, gViewProj);
+
+	// Transform to homogeneous clip space.
+#ifdef TEXTURE
+	float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform);
+	vout.TexC = mul(texC, gMatTransform).xy;
+#endif
 	
 	return vout;
 }
  
 float4 PS(VertexOut pin) : SV_Target
 {
+    float4 texColor = float4(1.0, 1.0, 1.0, 1.0);
+#ifdef TEXTURE
+	texColor = gDiffuseMap.Sample(samAnisotropic, pin.TexC);
+#endif
+    float4 diffuseAlbedo = texColor * gDiffuseAlbedo;
+
 	// Interpolating normal can unnormalize it, so normalize it.
     pin.NormalW = normalize(pin.NormalW);
 
@@ -110,11 +123,11 @@ float4 PS(VertexOut pin) : SV_Target
 	// Start with a sum of zero. 
 
 	// Indirect lighting.
-	float4 ambient = gAmbientLight*gDiffuseAlbedo;
+	float4 ambient = gAmbientLight*diffuseAlbedo;
 
 	const float shininess = 1.0f - gRoughness;
 
-	Material mat = { gDiffuseAlbedo, gFresnelR0, shininess };
+	Material mat = { diffuseAlbedo, gFresnelR0, shininess };
 	float3 shadowFactor = 1.0f;
 	float4 directLight = ComputeLighting(gLights, mat, pin.PosW,
 		pin.NormalW, toEyeW, shadowFactor);

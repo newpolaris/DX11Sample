@@ -9,10 +9,18 @@ struct Vertex
 	XMFLOAT3 Normal;
 };
 
+struct VertexTex
+{
+	XMFLOAT3 Pos;
+	XMFLOAT3 Normal;
+	XMFLOAT2 Tex;
+};
+
 struct ObjectConstants
 {
     XMMATRIX World;                    // Offset:    0, size:   64
     XMMATRIX WorldInvTranspose;        // Offset:   64, size:   64
+	XMMATRIX TexTransform;             // Offset:  128, size:   64
 };
 
 struct PassConstants
@@ -41,7 +49,7 @@ struct PassConstants
     Light Lights[MaxLights];
 };
 
-static_assert(sizeof(ObjectConstants) == 128, "buffer size dismatch");
+static_assert(sizeof(ObjectConstants) == 192, "buffer size dismatch");
 static_assert(sizeof(MaterialConstants) == 96, "buffer size dismatch");
 static_assert(sizeof(PassConstants) == 1216, "buffer size dismatch");
 

@@ -534,4 +534,15 @@ struct MeshGeometry
 	*/
 };
 
+struct Texture
+{
+	// Unique material name for lookup.
+	std::string Name;
+
+	std::wstring Filename;
+
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> Resource = nullptr;
+};
+
+
 #endif // D3DUTIL_H

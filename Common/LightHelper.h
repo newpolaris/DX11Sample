@@ -107,8 +107,8 @@ struct MaterialFresnel
 	// Index into constant buffer corresponding to this material.
 	int MatCBIndex = -1;
 
-	// Index into SRV heap for diffuse texture.
-	int DiffuseSrvHeapIndex = -1;
+	// Name for diffuse texture.
+	std::string DiffuseSrv;
 
 	// Index into SRV heap for normal texture.
 	int NormalSrvHeapIndex = -1;
