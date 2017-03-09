@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../../Common/d3dUtil.h"
-#include "../../Common/UploadBuffer.h"
+#include "../../Common/ConstantBuffer.h"
 
 struct Vertex
 {
@@ -57,7 +57,7 @@ public:
 
     // We cannot update a cbuffer until the GPU is done processing the commands
     // that reference it.  So each frame needs their own cbuffers.
-    std::unique_ptr<UploadBuffer<PassConstants>> PassCB = nullptr;
-    std::unique_ptr<UploadBuffer<MaterialConstants>> MaterialCB = nullptr;
-    std::unique_ptr<UploadBuffer<ObjectConstants>> ObjectCB = nullptr;
+    std::unique_ptr<ConstantBuffer<PassConstants>> PassCB = nullptr;
+    std::unique_ptr<ConstantBuffer<MaterialConstants>> MaterialCB = nullptr;
+    std::unique_ptr<ConstantBuffer<ObjectConstants>> ObjectCB = nullptr;
 };

@@ -94,6 +94,9 @@
     <ClInclude Include="..\..\Common\UploadBuffer.h">
       <Filter>Common</Filter>
     </ClInclude>
+    <ClInclude Include="ConstantBuffer.h">
+      <Filter>Common</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="FX\Basic.fx">

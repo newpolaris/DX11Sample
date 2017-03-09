@@ -412,18 +412,15 @@ void LitSkullApp::DrawScene()
 	md3dImmediateContext->GSSetShader(nullptr, nullptr, 0);
 
 	std::array<ID3D11Buffer*, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT>  ConstantBuffers;
-	ConstantBuffers[0] = mFrameResource->ObjectCB->Resource();
-	ConstantBuffers[1] = mFrameResource->MaterialCB->Resource();
-	ConstantBuffers[2] = mFrameResource->PassCB->Resource();
-	md3dImmediateContext->VSSetConstantBuffers(0, 3, ConstantBuffers.data());
-	md3dImmediateContext->PSSetConstantBuffers(0, 3, ConstantBuffers.data());
+	ConstantBuffers[0] = mFrameResource->PassCB->Resource(0);
+	md3dImmediateContext->VSSetConstantBuffers(2, 1, ConstantBuffers.data());
+	md3dImmediateContext->PSSetConstantBuffers(2, 1, ConstantBuffers.data());
 
 	ID3D11Buffer *pibPre = nullptr, *pvbPre = nullptr;
 	D3D11_PRIMITIVE_TOPOLOGY type;
 
 	for (size_t i = 0; i < mAllRitems.size(); ++i) {
 		auto& ri = mAllRitems[i];
-
 		if (chkupdate(type, ri->PrimitiveType))
 			md3dImmediateContext->IASetPrimitiveTopology(type);
 		auto geo = ri->Geo;
@@ -436,9 +433,11 @@ void LitSkullApp::DrawScene()
 		if (chkupdate(pvbPre, pvb))
 			md3dImmediateContext->IASetVertexBuffers(0, 1, &pvbPre, &vstride, &offset);
 
-		// Update
-		mFrameResource->ObjectCB->UploadData(md3dImmediateContext, i);
-		mFrameResource->MaterialCB->UploadData(md3dImmediateContext, i);
+		ConstantBuffers.assign(nullptr);
+		ConstantBuffers[0] = mFrameResource->ObjectCB->Resource(ri->ObjCBIndex);
+		ConstantBuffers[1] = mFrameResource->MaterialCB->Resource(ri->Mat->MatCBIndex);
+		md3dImmediateContext->VSSetConstantBuffers(0, 2, ConstantBuffers.data());
+		md3dImmediateContext->PSSetConstantBuffers(0, 2, ConstantBuffers.data());
 
 		md3dImmediateContext->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
 	}
@@ -788,7 +787,7 @@ void LitSkullApp::BuildRenderItems()
  
 void LitSkullApp::BuildFrameResources()
 {
-	mFrameResource = std::make_unique<FrameResource>(md3dDevice, 1, (UINT)mAllRitems.size(), (UINT)mAllRitems.size());
+	mFrameResource = std::make_unique<FrameResource>(md3dDevice, 1, (UINT)mAllRitems.size(), (UINT)mMaterials.size());
 
 	for (size_t i = 0; i < mAllRitems.size(); i++) {
 		XMMATRIX world = XMLoadFloat4x4(&mAllRitems[i]->World);
@@ -797,17 +796,17 @@ void LitSkullApp::BuildFrameResources()
 		ObjectConstants obj;
 		obj.World = world;
 		obj.WorldInvTranspose = worldInvTranspose;
-		mFrameResource->ObjectCB->CopyData(i, obj);
+		mFrameResource->ObjectCB->UploadData(md3dImmediateContext, mAllRitems[i]->ObjCBIndex, obj);
 	}
 
-	for (size_t i = 0; i < mAllRitems.size(); i++) {
-		auto mat = mAllRitems[i]->Mat;
+	for (auto& m : mMaterials) {
+		auto mat = m.second.get();
 		MaterialConstants matConstants;
 		matConstants.DiffuseAlbedo = mat->DiffuseAlbedo;
 		matConstants.FresnelR0 = mat->FresnelR0;
 		matConstants.Roughness = mat->Roughness;
 		// XMStoreFloat4x4(&matConstants.MatTransform, matTransform);
-		mFrameResource->MaterialCB->CopyData(i, matConstants);
+		mFrameResource->MaterialCB->UploadData(md3dImmediateContext, mat->MatCBIndex, matConstants);
 	}
 }
 
@@ -840,6 +839,5 @@ void LitSkullApp::UpdateMainPassCB(float dt)
 	MainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
 	MainPassCB.Lights[2].Strength = { 0.15f, 0.15f, 0.15f };
 
-	mFrameResource->PassCB->CopyData(0, MainPassCB);
-	mFrameResource->PassCB->UploadData(md3dImmediateContext, 0);
+	mFrameResource->PassCB->UploadData(md3dImmediateContext, 0, MainPassCB);
 }
