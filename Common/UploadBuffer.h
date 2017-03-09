@@ -11,8 +11,7 @@ public:
     {
         mElementByteSize = sizeof(T);
 
-		mUploadBuffer = d3dHelper::CreateConstantBuffer(
-			device, mElementByteSize);
+		mUploadBuffer = d3dHelper::CreateConstantBuffer(device, mElementByteSize);
 
 		mMappedData.assign(elementCount*mElementByteSize, 0);
     }

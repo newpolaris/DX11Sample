@@ -4,23 +4,59 @@
 // Basic effect that currently supports transformations, lighting, and texturing.
 //=============================================================================
 
+// Defaults for number of lights.
+#ifndef NUM_DIR_LIGHTS
+    #define NUM_DIR_LIGHTS 3
+#endif
+
+#ifndef NUM_POINT_LIGHTS
+    #define NUM_POINT_LIGHTS 0
+#endif
+
+#ifndef NUM_SPOT_LIGHTS
+    #define NUM_SPOT_LIGHTS 0
+#endif
+
 #include "LightHelper.fx"
- 
-cbuffer cbPerObject
+
+cbuffer cbPerObject : register(b0)
 {
 	float4x4 gWorld;
 	float4x4 gWorldInvTranspose;
-	Material gMaterial;
 }; 
 
-cbuffer cbPerFrame 
+cbuffer cbMaterial : register(b1)
 {
-	DirectionalLight gDirLights[3];
-	float4x4 gViewProj;
-	float3 gEyePosW;
-	float  gFogStart;
-	uniform int gLightCount;
-	float3 pad;
+	float4 gDiffuseAlbedo;
+	float3 gFresnelR0;
+	float gRoughness;
+	float4x4 gMatTransform;
+}
+
+// Constant data that varies per material.
+cbuffer cbPass : register(b2)
+{
+    float4x4 gView;
+    float4x4 gInvView;
+    float4x4 gProj;
+    float4x4 gInvProj;
+    float4x4 gViewProj;
+    float4x4 gInvViewProj;
+    float3 gEyePosW;
+    float cbPerObjectPad1;
+    float2 gRenderTargetSize;
+    float2 gInvRenderTargetSize;
+    float gNearZ;
+    float gFarZ;
+    float gTotalTime;
+    float gDeltaTime;
+    float4 gAmbientLight;
+
+    // Indices [0, NUM_DIR_LIGHTS) are directional lights;
+    // indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
+    // indices [NUM_DIR_LIGHTS+NUM_POINT_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHT+NUM_SPOT_LIGHTS)
+    // are spot lights for a maximum of MaxLights per object.
+    Light gLights[MaxLights];
 };
 
 // Nonnumeric values cannot be added to a cbuffer.
@@ -50,11 +86,12 @@ struct VertexOut
 
 VertexOut VS(VertexIn vin)
 {
-	VertexOut vout;
+	VertexOut vout = (VertexOut)0.0f;
 	
 	// Transform to world space space.
 	float4 PosW = mul(float4(vin.PosL, 1.0f), gWorld);
 	vout.PosW = PosW.xyz;
+
 	vout.NormalW = mul(vin.NormalL, (float3x3)gWorldInvTranspose);
 		
 	// Transform to homogeneous clip space.
@@ -69,41 +106,23 @@ float4 PS(VertexOut pin) : SV_Target
     pin.NormalW = normalize(pin.NormalW);
 
 	// The toEye vector is used in lighting.
-	float3 toEye = gEyePosW - pin.PosW;
-
-	// Cache the distance to the eye from this surface point.
-	float distToEye = length(toEye); 
-
-	// Normalize.
-	toEye /= distToEye;
-	
-	//
-	// Lighting.
-	//
-
-
+	float3 toEyeW = normalize(gEyePosW - pin.PosW);
 	// Start with a sum of zero. 
-	float4 ambient = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	float4 diffuse = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	float4 spec    = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
-	// Sum the light contribution from each light source.  
-	[unroll]
-	for(int i = 0; i < gLightCount; ++i)
-	{
-		float4 A, D, S;
-		ComputeDirectionalLight(gMaterial, gDirLights[i], pin.NormalW, toEye, 
-			A, D, S);
+	// Indirect lighting.
+	float4 ambient = gAmbientLight*gDiffuseAlbedo;
 
-		ambient += A;
-		diffuse += D;
-		spec    += S;
-	}
+	const float shininess = 1.0f - gRoughness;
 
-	float4 litColor = ambient + diffuse + spec;
+	Material mat = { gDiffuseAlbedo, gFresnelR0, shininess };
+	float3 shadowFactor = 1.0f;
+	float4 directLight = ComputeLighting(gLights, mat, pin.PosW,
+		pin.NormalW, toEyeW, shadowFactor);
 
-	// Common to take alpha from diffuse material.
-	litColor.a = gMaterial.Diffuse.a;
+    float4 litColor = ambient + directLight;
+
+    // Common convention to take alpha from diffuse material.
+    litColor.a = gDiffuseAlbedo.a;
 
     return litColor;
 }

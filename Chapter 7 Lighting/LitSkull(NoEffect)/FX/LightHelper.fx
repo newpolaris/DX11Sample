@@ -4,198 +4,168 @@
 // Structures and functions for lighting calculations.
 //***************************************************************************************
 
-struct DirectionalLight
+#define MaxLights 16
+
+struct Light
 {
-	float4 Ambient;
-	float4 Diffuse;
-	float4 Specular;
-	float3 Direction;
-	float pad;
+    float3 Strength;
+    float FalloffStart; // point/spot light only
+    float3 Direction;   // directional/spot light only
+    float FalloffEnd;   // point/spot light only
+    float3 Position;    // point light only
+    float SpotPower;    // spot light only
 };
 
-struct PointLight
-{ 
-	float4 Ambient;
-	float4 Diffuse;
-	float4 Specular;
-
-	float3 Position;
-	float Range;
-
-	float3 Att;
-	float pad;
-};
-
-struct SpotLight
-{
-	float4 Ambient;
-	float4 Diffuse;
-	float4 Specular;
-
-	float3 Position;
-	float Range;
-
-	float3 Direction;
-	float Spot;
-
-	float3 Att;
-	float pad;
-};
 
 struct Material
 {
-	float4 Ambient;
-	float4 Diffuse;
-	float4 Specular; // w = SpecPower
-	float4 Reflect;
+    float4 DiffuseAlbedo;
+    float3 FresnelR0;
+    float Shininess;
 };
 
-//---------------------------------------------------------------------------------------
-// Computes the ambient, diffuse, and specular terms in the lighting equation
-// from a directional light.  We need to output the terms separately because
-// later we will modify the individual terms.
-//---------------------------------------------------------------------------------------
-void ComputeDirectionalLight(Material mat, DirectionalLight L, 
-                             float3 normal, float3 toEye,
-					         out float4 ambient,
-						     out float4 diffuse,
-						     out float4 spec)
+float CalcAttenuation(float d, float falloffStart, float falloffEnd)
 {
-	// Initialize outputs.
-	ambient = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	diffuse = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	spec    = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    // Linear falloff.
+    return saturate((falloffEnd-d) / (falloffEnd - falloffStart));
+}
 
-	// The light vector aims opposite the direction the light rays travel.
-	float3 lightVec = -L.Direction;
+// Schlick gives an approximation to Fresnel reflectance (see pg. 233 "Real-Time Rendering 3rd Ed.").
+// R0 = ( (n-1)/(n+1) )^2, where n is the index of refraction.
+float3 SchlickFresnel(float3 R0, float3 normal, float3 lightVec)
+{
+    float cosIncidentAngle = saturate(dot(normal, lightVec));
 
-	// Add ambient term.
-	ambient = mat.Ambient * L.Ambient;	
+    float f0 = 1.0f - cosIncidentAngle;
+    float3 reflectPercent = R0 + (1.0f - R0)*(f0*f0*f0*f0*f0);
 
-	// Add diffuse and specular term, provided the surface is in 
-	// the line of site of the light.
-	
-	float diffuseFactor = dot(lightVec, normal);
+    return reflectPercent;
+}
 
-	// Flatten to avoid dynamic branching.
-	[flatten]
-	if( diffuseFactor > 0.0f )
-	{
-		float3 v         = reflect(-lightVec, normal);
-		float specFactor = pow(max(dot(v, toEye), 0.0f), mat.Specular.w);
-					
-		diffuse = diffuseFactor * mat.Diffuse * L.Diffuse;
-		spec    = specFactor * mat.Specular * L.Specular;
-	}
+float3 BlinnPhong(float3 lightStrength, float3 lightVec, float3 normal, float3 toEye, Material mat)
+{
+    const float m = mat.Shininess * 256.0f;
+    float3 halfVec = normalize(toEye + lightVec);
+
+    float roughnessFactor = (m + 8.0f)*pow(max(dot(halfVec, normal), 0.0f), m) / 8.0f;
+    float3 fresnelFactor = SchlickFresnel(mat.FresnelR0, halfVec, lightVec);
+
+    float3 specAlbedo = fresnelFactor*roughnessFactor;
+
+    // Our spec formula goes outside [0,1] range, but we are 
+    // doing LDR rendering.  So scale it down a bit.
+    specAlbedo = specAlbedo / (specAlbedo + 1.0f);
+
+    return (mat.DiffuseAlbedo.rgb + specAlbedo) * lightStrength;
 }
 
 //---------------------------------------------------------------------------------------
-// Computes the ambient, diffuse, and specular terms in the lighting equation
-// from a point light.  We need to output the terms separately because
-// later we will modify the individual terms.
+// Evaluates the lighting equation for directional lights.
 //---------------------------------------------------------------------------------------
-void ComputePointLight(Material mat, PointLight L, float3 pos, float3 normal, float3 toEye,
-				   out float4 ambient, out float4 diffuse, out float4 spec)
+float3 ComputeDirectionalLight(Light L, Material mat, float3 normal, float3 toEye)
 {
-	// Initialize outputs.
-	ambient = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	diffuse = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	spec    = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    // The light vector aims opposite the direction the light rays travel.
+    float3 lightVec = -L.Direction;
 
-	// The vector from the surface to the light.
-	float3 lightVec = L.Position - pos;
-		
-	// The distance from surface to light.
-	float d = length(lightVec);
-	
-	// Range test.
-	if( d > L.Range )
-		return;
-		
-	// Normalize the light vector.
-	lightVec /= d; 
-	
-	// Ambient term.
-	ambient = mat.Ambient * L.Ambient;	
+    // Scale light down by Lambert's cosine law.
+    float ndotl = max(dot(lightVec, normal), 0.0f);
+    float3 lightStrength = L.Strength * ndotl;
 
-	// Add diffuse and specular term, provided the surface is in 
-	// the line of site of the light.
-
-	float diffuseFactor = dot(lightVec, normal);
-
-	// Flatten to avoid dynamic branching.
-	[flatten]
-	if( diffuseFactor > 0.0f )
-	{
-		float3 v         = reflect(-lightVec, normal);
-		float specFactor = pow(max(dot(v, toEye), 0.0f), mat.Specular.w);
-					
-		diffuse = diffuseFactor * mat.Diffuse * L.Diffuse;
-		spec    = specFactor * mat.Specular * L.Specular;
-	}
-
-	// Attenuate
-	float att = 1.0f / dot(L.Att, float3(1.0f, d, d*d));
-
-	diffuse *= att;
-	spec    *= att;
+    return BlinnPhong(lightStrength, lightVec, normal, toEye, mat);
 }
 
 //---------------------------------------------------------------------------------------
-// Computes the ambient, diffuse, and specular terms in the lighting equation
-// from a spotlight.  We need to output the terms separately because
-// later we will modify the individual terms.
+// Evaluates the lighting equation for point lights.
 //---------------------------------------------------------------------------------------
-void ComputeSpotLight(Material mat, SpotLight L, float3 pos, float3 normal, float3 toEye,
-				  out float4 ambient, out float4 diffuse, out float4 spec)
+float3 ComputePointLight(Light L, Material mat, float3 pos, float3 normal, float3 toEye)
 {
-	// Initialize outputs.
-	ambient = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	diffuse = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	spec    = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    // The vector from the surface to the light.
+    float3 lightVec = L.Position - pos;
 
-	// The vector from the surface to the light.
-	float3 lightVec = L.Position - pos;
-		
-	// The distance from surface to light.
-	float d = length(lightVec);
-	
-	// Range test.
-	if( d > L.Range )
-		return;
-		
-	// Normalize the light vector.
-	lightVec /= d; 
-	
-	// Ambient term.
-	ambient = mat.Ambient * L.Ambient;	
+    // The distance from surface to light.
+    float d = length(lightVec);
 
-	// Add diffuse and specular term, provided the surface is in 
-	// the line of site of the light.
+    // Range test.
+    if(d > L.FalloffEnd)
+        return 0.0f;
 
-	float diffuseFactor = dot(lightVec, normal);
+    // Normalize the light vector.
+    lightVec /= d;
 
-	// Flatten to avoid dynamic branching.
-	[flatten]
-	if( diffuseFactor > 0.0f )
-	{
-		float3 v         = reflect(-lightVec, normal);
-		float specFactor = pow(max(dot(v, toEye), 0.0f), mat.Specular.w);
-					
-		diffuse = diffuseFactor * mat.Diffuse * L.Diffuse;
-		spec    = specFactor * mat.Specular * L.Specular;
-	}
-	
-	// Scale by spotlight factor and attenuate.
-	float spot = pow(max(dot(-lightVec, L.Direction), 0.0f), L.Spot);
+    // Scale light down by Lambert's cosine law.
+    float ndotl = max(dot(lightVec, normal), 0.0f);
+    float3 lightStrength = L.Strength * ndotl;
 
-	// Scale by spotlight factor and attenuate.
-	float att = spot / dot(L.Att, float3(1.0f, d, d*d));
+    // Attenuate light by distance.
+    float att = CalcAttenuation(d, L.FalloffStart, L.FalloffEnd);
+    lightStrength *= att;
 
-	ambient *= spot;
-	diffuse *= att;
-	spec    *= att;
+    return BlinnPhong(lightStrength, lightVec, normal, toEye, mat);
 }
 
- 
- 
+//---------------------------------------------------------------------------------------
+// Evaluates the lighting equation for spot lights.
+//---------------------------------------------------------------------------------------
+float3 ComputeSpotLight(Light L, Material mat, float3 pos, float3 normal, float3 toEye)
+{
+    // The vector from the surface to the light.
+    float3 lightVec = L.Position - pos;
+
+    // The distance from surface to light.
+    float d = length(lightVec);
+
+    // Range test.
+    if(d > L.FalloffEnd)
+        return 0.0f;
+
+    // Normalize the light vector.
+    lightVec /= d;
+
+    // Scale light down by Lambert's cosine law.
+    float ndotl = max(dot(lightVec, normal), 0.0f);
+    float3 lightStrength = L.Strength * ndotl;
+
+    // Attenuate light by distance.
+    float att = CalcAttenuation(d, L.FalloffStart, L.FalloffEnd);
+    lightStrength *= att;
+
+    // Scale by spotlight
+    float spotFactor = pow(max(dot(-lightVec, L.Direction), 0.0f), L.SpotPower);
+    lightStrength *= spotFactor;
+
+    return BlinnPhong(lightStrength, lightVec, normal, toEye, mat);
+}
+
+float4 ComputeLighting(Light gLights[MaxLights], Material mat,
+                       float3 pos, float3 normal, float3 toEye,
+                       float3 shadowFactor)
+{
+    float3 result = 0.0f;
+
+    int i = 0;
+
+#if (NUM_DIR_LIGHTS > 0)
+    for(i = 0; i < NUM_DIR_LIGHTS; ++i)
+    {
+        result += shadowFactor[i] * ComputeDirectionalLight(gLights[i], mat, normal, toEye);
+    }
+#endif
+
+#if (NUM_POINT_LIGHTS > 0)
+    for(i = NUM_DIR_LIGHTS; i < NUM_DIR_LIGHTS+NUM_POINT_LIGHTS; ++i)
+    {
+        result += ComputePointLight(gLights[i], mat, pos, normal, toEye);
+    }
+#endif
+
+#if (NUM_SPOT_LIGHTS > 0)
+    for(i = NUM_DIR_LIGHTS + NUM_POINT_LIGHTS; i < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS + NUM_SPOT_LIGHTS; ++i)
+    {
+        result += ComputeSpotLight(gLights[i], mat, pos, normal, toEye);
+    }
+#endif 
+
+    return float4(result, 0.0f);
+}
+
+

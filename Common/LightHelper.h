@@ -9,6 +9,8 @@
 
 #include <Windows.h>
 #include <xnamath.h>
+#include <string>
+#include "MathHelper.h"
 
 // Note: Make sure structure alignment agrees with HLSL structure padding rules. 
 //   Elements are packed into 4D vectors with the restriction that an element
@@ -73,4 +75,48 @@ struct Material
 	XMFLOAT4 Reflect;
 };
 
+struct MaterialConstants
+{
+	XMFLOAT4 DiffuseAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f };
+	XMFLOAT3 FresnelR0 = { 0.01f, 0.01f, 0.01f };
+	float Roughness = 0.25f;
+
+	// Used in texture mapping.
+	XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
+};
+
+#define MaxLights 16
+
+struct Light
+{
+    XMFLOAT3 Strength = { 0.5f, 0.5f, 0.5f };
+    float FalloffStart = 1.0f;                          // point/spot light only
+    XMFLOAT3 Direction = { 0.0f, -1.0f, 0.0f };// directional/spot light only
+    float FalloffEnd = 10.0f;                           // point/spot light only
+    XMFLOAT3 Position = { 0.0f, 0.0f, 0.0f };  // point/spot light only
+    float SpotPower = 64.0f;                            // spot light only
+};
+
+// Simple struct to represent a material for our demos.  A production 3D engine
+// would likely create a class hierarchy of Materials.
+struct MaterialFresnel
+{
+	// Unique material name for lookup.
+	std::string Name;
+
+	// Index into constant buffer corresponding to this material.
+	int MatCBIndex = -1;
+
+	// Index into SRV heap for diffuse texture.
+	int DiffuseSrvHeapIndex = -1;
+
+	// Index into SRV heap for normal texture.
+	int NormalSrvHeapIndex = -1;
+
+	// Material constant buffer data used for shading.
+	XMFLOAT4 DiffuseAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f };
+	XMFLOAT3 FresnelR0 = { 0.01f, 0.01f, 0.01f };
+	float Roughness = .25f;
+	XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
+};
 #endif // LIGHTHELPER_H

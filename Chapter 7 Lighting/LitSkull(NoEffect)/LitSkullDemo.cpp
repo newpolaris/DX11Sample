@@ -51,7 +51,7 @@ struct RenderItem
 	// Index into GPU constant buffer corresponding to the ObjectCB for this render item.
 	UINT ObjCBIndex = -1;
 
-	Material* Mat = nullptr;
+	MaterialFresnel* Mat = nullptr;
 	MeshGeometry* Geo = nullptr;
 
     // Primitive topology.
@@ -81,12 +81,13 @@ public:
 private:
 	void BuildFX();
 	void BuildVertexLayout();
+	void BuildMaterials();
 	void BuildShapeGeometryBuffers();
 	void BuildSkullGeometryBuffers();
 	void BuildGeometry();
 	void BuildRenderItems();
 	void BuildFrameResources();
-	void UpdateMainPassCB();
+	void UpdateMainPassCB(float dt);
 
 private:
 	ComPtr<ID3D11VertexShader> pVertexShader;
@@ -97,11 +98,10 @@ private:
 	
 	ComPtr<ID3D11InputLayout> pLayout;
 
-    std::vector<std::unique_ptr<FrameResource>> mFrameResources;
-    FrameResource* mCurrFrameResource = nullptr;
-    int mCurrFrameResourceIndex = 0;
+    std::unique_ptr<FrameResource> mFrameResource;
 
 	std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
+	std::unordered_map<std::string, std::unique_ptr<MaterialFresnel>> mMaterials;
 
 	// List of all the render items.
 	std::vector<std::unique_ptr<RenderItem>> mAllRitems;
@@ -122,8 +122,9 @@ private:
 	UINT mLightCount;
 
 	XMFLOAT3 mEyePosW;
-	XMFLOAT4X4 mProj;
-	XMFLOAT4X4 mViewProj;
+	XMMATRIX mProj;
+	XMMATRIX mView;
+	XMMATRIX mViewProj;
 
 	float mTheta;
 	float mPhi;
@@ -211,6 +212,7 @@ bool LitSkullApp::Init()
 	BuildFX();
 	BuildVertexLayout();
 	BuildGeometry();
+	BuildMaterials();
 	BuildRenderItems();
 	BuildFrameResources();
 
@@ -221,8 +223,7 @@ void LitSkullApp::OnResize()
 {
 	D3DApp::OnResize();
 
-	XMMATRIX P = XMMatrixPerspectiveFovLH(0.25f*MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
-	XMStoreFloat4x4(&mProj, P);
+	mProj = XMMatrixPerspectiveFovLH(0.25f*MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
 }
 
 void LitSkullApp::BuildFX()
@@ -319,12 +320,49 @@ void LitSkullApp::BuildVertexLayout()
 		pLayout.GetAddressOf()));
 }
 
+void LitSkullApp::BuildMaterials()
+{
+	auto bricks0 = std::make_unique<MaterialFresnel>();
+	bricks0->Name = "bricks0";
+	bricks0->MatCBIndex = 0;
+	bricks0->DiffuseSrvHeapIndex = 0;
+	XMStoreFloat4(&bricks0->DiffuseAlbedo, Colors::ForestGreen);
+	bricks0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	bricks0->Roughness = 0.1f;
+
+	auto stone0 = std::make_unique<MaterialFresnel>();
+	stone0->Name = "stone0";
+	stone0->MatCBIndex = 1;
+	stone0->DiffuseSrvHeapIndex = 1;
+	XMStoreFloat4(&stone0->DiffuseAlbedo, Colors::LightSteelBlue);
+	stone0->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+	stone0->Roughness = 0.3f;
+ 
+	auto tile0 = std::make_unique<MaterialFresnel>();
+	tile0->Name = "tile0";
+	tile0->MatCBIndex = 2;
+	tile0->DiffuseSrvHeapIndex = 2;
+	XMStoreFloat4(&tile0->DiffuseAlbedo, Colors::LightGray);
+	tile0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	tile0->Roughness = 0.2f;
+
+	auto skullMat = std::make_unique<MaterialFresnel>();
+	skullMat->Name = "skullMat";
+	skullMat->MatCBIndex = 3;
+	skullMat->DiffuseSrvHeapIndex = 3;
+	skullMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	skullMat->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05);
+	skullMat->Roughness = 0.3f;
+	
+	mMaterials["bricks0"] = std::move(bricks0);
+	mMaterials["stone0"] = std::move(stone0);
+	mMaterials["tile0"] = std::move(tile0);
+	mMaterials["skullMat"] = std::move(skullMat);
+}
+
 void LitSkullApp::UpdateScene(float dt)
 {
     // Cycle through the circular frame resource array.
-    mCurrFrameResourceIndex = (mCurrFrameResourceIndex + 1) % gNumFrameResources;
-    mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
-
 	// Convert Spherical to Cartesian coordinates.
 	float x = mRadius*sinf(mPhi)*cosf(mTheta);
 	float z = mRadius*sinf(mPhi)*sinf(mTheta);
@@ -335,24 +373,11 @@ void LitSkullApp::UpdateScene(float dt)
 	XMVECTOR target = XMVectorZero();
 	XMVECTOR up     = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 
-	XMMATRIX view = XMMatrixLookAtLH(pos, target, up);
-	XMMATRIX proj = XMLoadFloat4x4(&mProj);
-	XMMATRIX viewProj = view*proj;
+	mView = XMMatrixLookAtLH(pos, target, up);
+	mViewProj = mView*mProj;
 
 	mEyePosW = XMFLOAT3(x, y, z);
-	XMStoreFloat4x4(&mViewProj, viewProj);
-	UpdateMainPassCB();
-
-	for (size_t i = 0; i < mAllRitems.size(); i++) {
-		XMMATRIX world = XMLoadFloat4x4(&mAllRitems[i]->World);
-		XMMATRIX worldInvTranspose = MathHelper::InverseTranspose(world);
-
-		ObjectConstants obj;
-		obj.World = world;
-		obj.WorldInvTranspose = worldInvTranspose;
-		obj.Material = *mAllRitems[i]->Mat;
-		mCurrFrameResource->ObjectCB->CopyData(i, obj);
-	}
+	UpdateMainPassCB(dt);
 	//
 	// Switch the number of lights based on key presses.
 	//
@@ -387,10 +412,11 @@ void LitSkullApp::DrawScene()
 	md3dImmediateContext->GSSetShader(nullptr, nullptr, 0);
 
 	std::array<ID3D11Buffer*, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT>  ConstantBuffers;
-	ConstantBuffers[0] = mCurrFrameResource->ObjectCB->Resource();
-	ConstantBuffers[1] = mCurrFrameResource->PassCB->Resource();
-	md3dImmediateContext->VSSetConstantBuffers(0, 2, ConstantBuffers.data());
-	md3dImmediateContext->PSSetConstantBuffers(0, 2, ConstantBuffers.data());
+	ConstantBuffers[0] = mFrameResource->ObjectCB->Resource();
+	ConstantBuffers[1] = mFrameResource->MaterialCB->Resource();
+	ConstantBuffers[2] = mFrameResource->PassCB->Resource();
+	md3dImmediateContext->VSSetConstantBuffers(0, 3, ConstantBuffers.data());
+	md3dImmediateContext->PSSetConstantBuffers(0, 3, ConstantBuffers.data());
 
 	ID3D11Buffer *pibPre = nullptr, *pvbPre = nullptr;
 	D3D11_PRIMITIVE_TOPOLOGY type;
@@ -411,7 +437,8 @@ void LitSkullApp::DrawScene()
 			md3dImmediateContext->IASetVertexBuffers(0, 1, &pvbPre, &vstride, &offset);
 
 		// Update
-		mCurrFrameResource->ObjectCB->UploadData(md3dImmediateContext, i);
+		mFrameResource->ObjectCB->UploadData(md3dImmediateContext, i);
+		mFrameResource->MaterialCB->UploadData(md3dImmediateContext, i);
 
 		md3dImmediateContext->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
 	}
@@ -668,7 +695,7 @@ void LitSkullApp::BuildRenderItems()
 	gridRitem->StartIndexLocation = gridRitem->Geo->DrawArgs["grid"].StartIndexLocation;
 	gridRitem->BaseVertexLocation = gridRitem->Geo->DrawArgs["grid"].BaseVertexLocation;
 	gridRitem->World = mGridWorld;
-	gridRitem->Mat = &mGridMat;
+	gridRitem->Mat = mMaterials["tile0"].get();
 	mAllRitems.push_back(std::move(gridRitem));
 
 	auto boxRitem = std::make_unique<RenderItem>();
@@ -679,7 +706,7 @@ void LitSkullApp::BuildRenderItems()
 	boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["box"].StartIndexLocation;
 	boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
 	boxRitem->World = mBoxWorld;
-	boxRitem->Mat = &mBoxMat;
+	boxRitem->Mat = mMaterials["stone0"].get();
 	mAllRitems.push_back(std::move(boxRitem));
 
 	XMMATRIX brickTexTransform = XMMatrixScaling(1.0f, 1.0f, 1.0f);
@@ -700,7 +727,7 @@ void LitSkullApp::BuildRenderItems()
 		XMStoreFloat4x4(&leftCylRitem->World, rightCylWorld);
 		XMStoreFloat4x4(&leftCylRitem->TexTransform, brickTexTransform);
 		leftCylRitem->ObjCBIndex = objCBIndex++;
-		leftCylRitem->Mat = &mCylinderMat;
+		leftCylRitem->Mat = mMaterials["bricks0"].get();
 		leftCylRitem->Geo = mGeometries["shapeGeo"].get();
 		leftCylRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 		leftCylRitem->IndexCount = leftCylRitem->Geo->DrawArgs["cylinder"].IndexCount;
@@ -711,7 +738,7 @@ void LitSkullApp::BuildRenderItems()
 		XMStoreFloat4x4(&rightCylRitem->World, leftCylWorld);
 		XMStoreFloat4x4(&rightCylRitem->TexTransform, brickTexTransform);
 		rightCylRitem->ObjCBIndex = objCBIndex++;
-		rightCylRitem->Mat = &mCylinderMat;
+		rightCylRitem->Mat = mMaterials["bricks0"].get();
 		rightCylRitem->Geo = mGeometries["shapeGeo"].get();
 		rightCylRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 		rightCylRitem->IndexCount = rightCylRitem->Geo->DrawArgs["cylinder"].IndexCount;
@@ -722,7 +749,7 @@ void LitSkullApp::BuildRenderItems()
 		XMStoreFloat4x4(&leftSphereRitem->World, leftSphereWorld);
 		leftSphereRitem->TexTransform = MathHelper::Identity4x4();
 		leftSphereRitem->ObjCBIndex = objCBIndex++;
-		leftSphereRitem->Mat = &mSphereMat;
+		leftSphereRitem->Mat = mMaterials["stone0"].get();
 		leftSphereRitem->Geo = mGeometries["shapeGeo"].get();
 		leftSphereRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 		leftSphereRitem->IndexCount = leftSphereRitem->Geo->DrawArgs["sphere"].IndexCount;
@@ -733,7 +760,7 @@ void LitSkullApp::BuildRenderItems()
 		XMStoreFloat4x4(&rightSphereRitem->World, rightSphereWorld);
 		rightSphereRitem->TexTransform = MathHelper::Identity4x4();
 		rightSphereRitem->ObjCBIndex = objCBIndex++;
-		rightSphereRitem->Mat = &mSphereMat;
+		rightSphereRitem->Mat = mMaterials["stone0"].get();
 		rightSphereRitem->Geo = mGeometries["shapeGeo"].get();
 		rightSphereRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 		rightSphereRitem->IndexCount = rightSphereRitem->Geo->DrawArgs["sphere"].IndexCount;
@@ -755,41 +782,64 @@ void LitSkullApp::BuildRenderItems()
 	skullRitem->StartIndexLocation = skullRitem->Geo->DrawArgs["skull"].StartIndexLocation;
 	skullRitem->BaseVertexLocation = skullRitem->Geo->DrawArgs["skull"].BaseVertexLocation;
 	skullRitem->World = mSkullWorld;
-	skullRitem->Mat = &mSkullMat;
+	skullRitem->Mat = mMaterials["skullMat"].get();
 	mAllRitems.push_back(std::move(skullRitem));
 }
  
 void LitSkullApp::BuildFrameResources()
 {
-    for(int i = 0; i < gNumFrameResources; ++i)
-    {
-        mFrameResources.push_back(std::make_unique<FrameResource>(
-			md3dDevice, 1, (UINT)mAllRitems.size(), 1));
-    }
+	mFrameResource = std::make_unique<FrameResource>(md3dDevice, 1, (UINT)mAllRitems.size(), (UINT)mAllRitems.size());
+
+	for (size_t i = 0; i < mAllRitems.size(); i++) {
+		XMMATRIX world = XMLoadFloat4x4(&mAllRitems[i]->World);
+		XMMATRIX worldInvTranspose = MathHelper::InverseTranspose(world);
+
+		ObjectConstants obj;
+		obj.World = world;
+		obj.WorldInvTranspose = worldInvTranspose;
+		mFrameResource->ObjectCB->CopyData(i, obj);
+	}
+
+	for (size_t i = 0; i < mAllRitems.size(); i++) {
+		auto mat = mAllRitems[i]->Mat;
+		MaterialConstants matConstants;
+		matConstants.DiffuseAlbedo = mat->DiffuseAlbedo;
+		matConstants.FresnelR0 = mat->FresnelR0;
+		matConstants.Roughness = mat->Roughness;
+		// XMStoreFloat4x4(&matConstants.MatTransform, matTransform);
+		mFrameResource->MaterialCB->CopyData(i, matConstants);
+	}
 }
 
-void LitSkullApp::UpdateMainPassCB()
+void LitSkullApp::UpdateMainPassCB(float dt)
 {
-	PassConstants frame;
-	frame.DirLights[0].Ambient = XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
-	frame.DirLights[0].Diffuse = XMFLOAT4(0.5f, 0.5f, 0.5f, 1.0f);
-	frame.DirLights[0].Specular = XMFLOAT4(0.5f, 0.5f, 0.5f, 1.0f);
-	frame.DirLights[0].Direction = XMFLOAT3(0.57735f, -0.57735f, 0.57735f);
+	XMMATRIX viewProj = XMMatrixMultiply(mView, mProj);
+	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(mView), mView);
+	XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(mProj), mProj);
+	XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
 
-	frame.DirLights[1].Ambient = XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
-	frame.DirLights[1].Diffuse = XMFLOAT4(0.20f, 0.20f, 0.20f, 1.0f);
-	frame.DirLights[1].Specular = XMFLOAT4(0.25f, 0.25f, 0.25f, 1.0f);
-	frame.DirLights[1].Direction = XMFLOAT3(-0.57735f, -0.57735f, 0.57735f);
+    PassConstants MainPassCB;
+	XMStoreFloat4x4(&MainPassCB.View, mView);
+	XMStoreFloat4x4(&MainPassCB.InvView, invView);
+	XMStoreFloat4x4(&MainPassCB.Proj, mProj);
+	XMStoreFloat4x4(&MainPassCB.InvProj, invProj);
+	XMStoreFloat4x4(&MainPassCB.ViewProj, viewProj);
+	XMStoreFloat4x4(&MainPassCB.InvViewProj, invViewProj);
+	MainPassCB.EyePosW = mEyePosW;
+	MainPassCB.RenderTargetSize = XMFLOAT2((float)mClientWidth, (float)mClientHeight);
+	MainPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
+	MainPassCB.NearZ = 1.0f;
+	MainPassCB.FarZ = 1000.0f;
+	// MainPassCB.TotalTime = gt.TotalTime();
+	MainPassCB.DeltaTime = dt;
+	MainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+	MainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
+	MainPassCB.Lights[0].Strength = { 0.6f, 0.6f, 0.6f };
+	MainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
+	MainPassCB.Lights[1].Strength = { 0.3f, 0.3f, 0.3f };
+	MainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
+	MainPassCB.Lights[2].Strength = { 0.15f, 0.15f, 0.15f };
 
-	frame.DirLights[2].Ambient = XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
-	frame.DirLights[2].Diffuse = XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
-	frame.DirLights[2].Specular = XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
-	frame.DirLights[2].Direction = XMFLOAT3(0.0f, -0.707f, -0.707f);
-
-	frame.EyePosW = mEyePosW;
-	frame.ViewProj = XMLoadFloat4x4(&mViewProj);
-	frame.LightCount = mLightCount;
-
-	mCurrFrameResource->PassCB->CopyData(0, frame);
-	mCurrFrameResource->PassCB->UploadData(md3dImmediateContext, 0);
+	mFrameResource->PassCB->CopyData(0, MainPassCB);
+	mFrameResource->PassCB->UploadData(md3dImmediateContext, 0);
 }
