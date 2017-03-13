@@ -11,9 +11,14 @@ struct Vertex
 
 struct VertexTex
 {
+	VertexTex() = default;
+	VertexTex(float x, float y, float z, float nx, float ny, float nz, float u, float v) :
+		Pos(x, y, z),
+		Normal(nx, ny, nz),
+		TexC(u, v) {}
 	XMFLOAT3 Pos;
 	XMFLOAT3 Normal;
-	XMFLOAT2 Tex;
+	XMFLOAT2 TexC;
 };
 
 struct ObjectConstants

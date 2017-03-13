@@ -14,7 +14,7 @@
     <ProjectGuid>{E3A486E2-6917-49A7-BD27-6E7E52C646E9}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>LitSkull</RootNamespace>
-    <ProjectName>TexSkull</ProjectName>
+    <ProjectName>StencilDemo</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -107,7 +107,7 @@
     <ClCompile Include="..\..\Common\ShaderFactoryDX11.cpp" />
     <ClCompile Include="..\..\Common\Waves.cpp" />
     <ClCompile Include="FrameResource.cpp" />
-    <ClCompile Include="LitSkullDemo.cpp" />
+    <ClCompile Include="StencilDemo.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Common\d3dApp.h" />
@@ -117,6 +117,8 @@
     <ClInclude Include="..\..\Common\GeometryGenerator.h" />
     <ClInclude Include="..\..\Common\LightHelper.h" />
     <ClInclude Include="..\..\Common\MathHelper.h" />
+    <ClInclude Include="..\..\Common\PipelineStateManager.h" />
+    <ClInclude Include="..\..\Common\PipelineStateObject.h" />
     <ClInclude Include="..\..\Common\ShaderFactoryDX11.h" />
     <ClInclude Include="..\..\Common\UploadBuffer.h" />
     <ClInclude Include="..\..\Common\Waves.h" />
