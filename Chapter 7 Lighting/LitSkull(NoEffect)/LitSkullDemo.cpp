@@ -17,6 +17,7 @@
 #include "LightHelper.h"
 #include "FrameResource.h"
 #include "ShaderFactoryDX11.h"
+#include "MeshGeometry.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "D3DCompiler.lib")
@@ -325,7 +326,6 @@ void LitSkullApp::BuildMaterials()
 	auto bricks0 = std::make_unique<MaterialFresnel>();
 	bricks0->Name = "bricks0";
 	bricks0->MatCBIndex = 0;
-	bricks0->DiffuseSrvHeapIndex = 0;
 	XMStoreFloat4(&bricks0->DiffuseAlbedo, Colors::ForestGreen);
 	bricks0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
 	bricks0->Roughness = 0.1f;
@@ -333,7 +333,6 @@ void LitSkullApp::BuildMaterials()
 	auto stone0 = std::make_unique<MaterialFresnel>();
 	stone0->Name = "stone0";
 	stone0->MatCBIndex = 1;
-	stone0->DiffuseSrvHeapIndex = 1;
 	XMStoreFloat4(&stone0->DiffuseAlbedo, Colors::LightSteelBlue);
 	stone0->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
 	stone0->Roughness = 0.3f;
@@ -341,7 +340,6 @@ void LitSkullApp::BuildMaterials()
 	auto tile0 = std::make_unique<MaterialFresnel>();
 	tile0->Name = "tile0";
 	tile0->MatCBIndex = 2;
-	tile0->DiffuseSrvHeapIndex = 2;
 	XMStoreFloat4(&tile0->DiffuseAlbedo, Colors::LightGray);
 	tile0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
 	tile0->Roughness = 0.2f;
@@ -349,7 +347,6 @@ void LitSkullApp::BuildMaterials()
 	auto skullMat = std::make_unique<MaterialFresnel>();
 	skullMat->Name = "skullMat";
 	skullMat->MatCBIndex = 3;
-	skullMat->DiffuseSrvHeapIndex = 3;
 	skullMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	skullMat->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05);
 	skullMat->Roughness = 0.3f;

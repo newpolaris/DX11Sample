@@ -117,6 +117,7 @@
     <ClInclude Include="..\..\Common\GeometryGenerator.h" />
     <ClInclude Include="..\..\Common\LightHelper.h" />
     <ClInclude Include="..\..\Common\MathHelper.h" />
+    <ClInclude Include="..\..\Common\MeshGeometry.h" />
     <ClInclude Include="..\..\Common\PipelineStateManager.h" />
     <ClInclude Include="..\..\Common\PipelineStateObject.h" />
     <ClInclude Include="..\..\Common\ShaderFactoryDX11.h" />
