@@ -66,6 +66,7 @@ enum class RenderLayer : int
 	Texture,
 	Mirrors,
 	Reflected,
+	ReflectedTexture,
 	Transparent,
 	Shadow,
 	Count
@@ -132,6 +133,7 @@ private:
 	// Cache render items of interest.
 	RenderItem* mSkullRitem = nullptr;
 	RenderItem* mReflectedSkullRitem = nullptr;
+	RenderItem* mReflectedFloorRitem = nullptr;
 	RenderItem* mShadowedSkullRitem = nullptr;
 
 	// List of all the render items.
@@ -466,6 +468,7 @@ void StencilDemo::DrawScene()
 	DrawRenderItems(RenderLayer::Reflected);
 	// pass buffer change to 0
 	ConstantBuffers[0] = mFrameResource->PassCB->Resource(0);
+	DrawRenderItems(RenderLayer::ReflectedTexture);
 	md3dImmediateContext->VSSetConstantBuffers(2, 1, ConstantBuffers.data());
 	md3dImmediateContext->PSSetConstantBuffers(2, 1, ConstantBuffers.data());
 	DrawRenderItems(RenderLayer::Transparent);
@@ -773,10 +776,18 @@ void StencilDemo::BuildRenderItems()
 	mReflectedSkullRitem = reflectedSkullRitem.get();
 	mRitemLayer[(int)RenderLayer::Reflected].push_back(reflectedSkullRitem.get());
 
+	XMVECTOR mirrorPlane = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f); // xy plane
+	XMMATRIX R = XMMatrixReflect(mirrorPlane);
+	auto reflectedFloorRitem = std::make_unique<RenderItem>();
+	*reflectedFloorRitem = *floorRitem;
+	reflectedFloorRitem->ObjCBIndex = 4;
+	XMStoreFloat4x4(&reflectedFloorRitem->World, R);
+	mRitemLayer[(int)RenderLayer::ReflectedTexture].push_back(reflectedFloorRitem.get());
+
 	// Shadowed skull will have different world matrix, so it needs to be its own render item.
 	auto shadowedSkullRitem = std::make_unique<RenderItem>();
 	*shadowedSkullRitem = *skullRitem;
-	shadowedSkullRitem->ObjCBIndex = 4;
+	shadowedSkullRitem->ObjCBIndex = 5;
 	shadowedSkullRitem->Mat = mMaterials["shadowMat"].get();
 	mShadowedSkullRitem = shadowedSkullRitem.get();
 	mRitemLayer[(int)RenderLayer::Shadow].push_back(shadowedSkullRitem.get());
@@ -784,7 +795,7 @@ void StencilDemo::BuildRenderItems()
 	auto mirrorRitem = std::make_unique<RenderItem>();
 	mirrorRitem->World = MathHelper::Identity4x4();
 	mirrorRitem->TexTransform = MathHelper::Identity4x4();
-	mirrorRitem->ObjCBIndex = 5;
+	mirrorRitem->ObjCBIndex = 6;
 	mirrorRitem->Mat = mMaterials["icemirror"].get();
 	mirrorRitem->Geo = mGeometries["roomGeo"].get();
 	mirrorRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -797,6 +808,7 @@ void StencilDemo::BuildRenderItems()
 	mAllRitems.push_back(std::move(floorRitem));
 	mAllRitems.push_back(std::move(wallsRitem));
 	mAllRitems.push_back(std::move(skullRitem));
+	mAllRitems.push_back(std::move(reflectedFloorRitem));
 	mAllRitems.push_back(std::move(reflectedSkullRitem));
 	mAllRitems.push_back(std::move(shadowedSkullRitem));
 	mAllRitems.push_back(std::move(mirrorRitem));
@@ -1080,6 +1092,12 @@ void StencilDemo::BuildPSO()
 	refleced.StencilRef = 1;
 	refleced.RS = "cullClockwise";
 	CreatePSO(RenderLayer::Reflected, refleced);
+
+	PipelineStateDesc reflecedTexture = { "texture", "texture", "texture" };
+	reflecedTexture.DSS = "reflected";
+	reflecedTexture.StencilRef = 1;
+	reflecedTexture.RS = "cullClockwise";
+	CreatePSO(RenderLayer::ReflectedTexture, reflecedTexture);
 
 	auto transparent = PipelineStateDesc { "texture", "texture", "texture" };
 	transparent.BS = "transparent";
