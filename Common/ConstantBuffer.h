@@ -7,17 +7,23 @@ template<typename T>
 class ConstantBuffer
 {
 public:
-    ConstantBuffer(ID3D11Device* device, UINT elementCount, D3D11_SUBRESOURCE_DATA* data = nullptr) 
+    ConstantBuffer(ID3D11Device* device, UINT elementCount) 
     {
         mElementByteSize = sizeof(T);
 
 		for (int i = 0; i < elementCount; i++)
 			mUploadBuffer.emplace_back(d3dHelper::CreateConstantBuffer(device, mElementByteSize));
+		mBackup.resize(elementCount);
     }
 
     ConstantBuffer(const ConstantBuffer& rhs) = delete;
     ConstantBuffer& operator=(const ConstantBuffer& rhs) = delete;
     ~ConstantBuffer() {}
+
+	T& backup(int elementIndex) 
+	{
+		return mBackup[elementIndex];
+	}
 
     ID3D11Buffer* Resource(int elementIndex) const
     {
@@ -26,6 +32,8 @@ public:
 
 	void UploadData(ID3D11DeviceContext* context, int elementIndex, const T& data)
 	{
+		mBackup[elementIndex] = data;
+
 		D3D11_MAPPED_SUBRESOURCE Data;
 		Data.pData = nullptr;
 		Data.DepthPitch = Data.RowPitch = 0;
@@ -45,5 +53,6 @@ public:
 
 private:
     std::vector<Microsoft::WRL::ComPtr<ID3D11Resource>> mUploadBuffer;
+	std::vector<T> mBackup;
     UINT mElementByteSize = 0, mElementCount = 0;
 };

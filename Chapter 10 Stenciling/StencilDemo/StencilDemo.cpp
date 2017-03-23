@@ -141,10 +141,10 @@ private:
 
 	// Render items divided by state (like PSO)
 	std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
+	std::vector<std::pair<int, std::string>> mRenderLayerCounstBuffer[(int)RenderLayer::Count];
 	std::unique_ptr<PipelineStateObject> mPSOs[(int)RenderLayer::Count];
 
-    PassConstants mMainPassCB;
-	PassConstants mReflectedPassCB;
+	std::unordered_map<std::string, ComPtr<ID3D11Buffer>> mConstantBuffers;
 
 	XMFLOAT3 mSkullTranslation = { 0.0f, 1.0f, -5.0f };
 
@@ -378,7 +378,8 @@ void StencilDemo::OnKeyBoardInput(float dt)
 
 	// Update shadow world matrix.
 	XMVECTOR shadowPlane = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f); // xz plane
-	XMVECTOR toMainLight = -XMLoadFloat3(&mMainPassCB.Lights[0].Direction);
+	auto MainPassCB = mFrameResource->PassCB->backup(0);
+	XMVECTOR toMainLight = -XMLoadFloat3(&MainPassCB.Lights[0].Direction);
 	XMMATRIX S = XMMatrixShadow(shadowPlane, toMainLight);
 	XMMATRIX shadowOffsetY = XMMatrixTranslation(0.0f, 0.001f, 0.0f);
 	XMStoreFloat4x4(&mShadowedSkullRitem->World, skullWorld * S * shadowOffsetY);
@@ -415,6 +416,13 @@ void StencilDemo::DrawRenderItems(RenderLayer layer)
 		pPSO->depthStencil.StencilRef);
 	md3dImmediateContext->RSSetState(pPSO->pResterizer);
 
+	std::array<ID3D11Buffer*, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT> ConstantBuffers;
+	ConstantBuffers.assign(nullptr);
+	auto& cbuffers = mRenderLayerCounstBuffer[(int)layer];
+	for (auto cb : cbuffers) {
+		ConstantBuffers[cb.first] = mConstantBuffers[cb.second].Get();
+	}
+
 	const std::vector<RenderItem*>& ritems = mRitemLayer[(int)layer];
 
 	for (size_t i = 0; i < ritems.size(); ++i) {
@@ -428,11 +436,10 @@ void StencilDemo::DrawRenderItems(RenderLayer layer)
 		UINT vstride = geo->VertexByteStride, offset = 0;
 		md3dImmediateContext->IASetVertexBuffers(0, 1, &pvb, &vstride, &offset);
 
-		std::array<ID3D11Buffer*, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT> ConstantBuffers;
 		ConstantBuffers[0] = mFrameResource->ObjectCB->Resource(ri->ObjCBIndex);
 		ConstantBuffers[1] = mFrameResource->MaterialCB->Resource(ri->Mat->MatCBIndex);
-		md3dImmediateContext->VSSetConstantBuffers(0, 2, ConstantBuffers.data());
-		md3dImmediateContext->PSSetConstantBuffers(0, 2, ConstantBuffers.data());
+		md3dImmediateContext->VSSetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, ConstantBuffers.data());
+		md3dImmediateContext->PSSetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, ConstantBuffers.data());
 
 		std::array<ID3D11ShaderResourceView*, D3D10_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT> SRV;
 		auto& rTex = mTextures[ri->Mat->DiffuseSrv];
@@ -454,23 +461,11 @@ void StencilDemo::DrawScene()
 	Sampler[0] = mSamplerState[4].Get();
 	md3dImmediateContext->PSSetSamplers(0, 1, Sampler.data());
 
-	std::array<ID3D11Buffer*, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT> ConstantBuffers;
-	ConstantBuffers[0] = mFrameResource->PassCB->Resource(0);
-	md3dImmediateContext->VSSetConstantBuffers(2, 1, ConstantBuffers.data());
-	md3dImmediateContext->PSSetConstantBuffers(2, 1, ConstantBuffers.data());
 	DrawRenderItems(RenderLayer::Opaque);
 	DrawRenderItems(RenderLayer::Texture);
 	DrawRenderItems(RenderLayer::Mirrors);
-	// pass buffer change to 1
-	ConstantBuffers[0] = mFrameResource->PassCB->Resource(1);
-	md3dImmediateContext->VSSetConstantBuffers(2, 1, ConstantBuffers.data());
-	md3dImmediateContext->PSSetConstantBuffers(2, 1, ConstantBuffers.data());
 	DrawRenderItems(RenderLayer::Reflected);
-	// pass buffer change to 0
-	ConstantBuffers[0] = mFrameResource->PassCB->Resource(0);
 	DrawRenderItems(RenderLayer::ReflectedTexture);
-	md3dImmediateContext->VSSetConstantBuffers(2, 1, ConstantBuffers.data());
-	md3dImmediateContext->PSSetConstantBuffers(2, 1, ConstantBuffers.data());
 	DrawRenderItems(RenderLayer::Transparent);
 	DrawRenderItems(RenderLayer::Shadow);
 
@@ -812,6 +807,11 @@ void StencilDemo::BuildRenderItems()
 	mAllRitems.push_back(std::move(reflectedSkullRitem));
 	mAllRitems.push_back(std::move(shadowedSkullRitem));
 	mAllRitems.push_back(std::move(mirrorRitem));
+
+	for (int i = 0; i < (int)RenderLayer::Count; i++)
+		mRenderLayerCounstBuffer[i].push_back({ 2, "MainPass" });
+	mRenderLayerCounstBuffer[(int)RenderLayer::Reflected].assign(1, { 2, "ReflectedPass" });
+	mRenderLayerCounstBuffer[(int)RenderLayer::ReflectedTexture].assign(1, { 2, "ReflectedPass" });
 }
  
 void StencilDemo::BuildFrameResources()
@@ -875,23 +875,23 @@ void StencilDemo::UpdateMainPassCB(float dt)
 	MainPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
 	MainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
 	MainPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
-	mMainPassCB = MainPassCB;
-	mFrameResource->PassCB->UploadData(md3dImmediateContext, 0, mMainPassCB);
+	mFrameResource->PassCB->UploadData(md3dImmediateContext, 0, MainPassCB);
+	mConstantBuffers["MainPass"] = mFrameResource->PassCB->Resource(0);
 
 	XMVECTOR mirrorPlane = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f); // xy plane
 	XMMATRIX R = XMMatrixReflect(mirrorPlane);
 
-	mReflectedPassCB = mMainPassCB;
+	auto reflectedPassCB = MainPassCB;
 	// Reflect the lighting.
 	for(int i = 0; i < 3; ++i)
 	{
-		XMVECTOR lightDir = XMLoadFloat3(&mMainPassCB.Lights[i].Direction);
+		XMVECTOR lightDir = XMLoadFloat3(&reflectedPassCB.Lights[i].Direction);
 		XMVECTOR reflectedLightDir = XMVector3TransformNormal(lightDir, R);
-		XMStoreFloat3(&mReflectedPassCB.Lights[i].Direction, reflectedLightDir);
+		XMStoreFloat3(&reflectedPassCB.Lights[i].Direction, reflectedLightDir);
 	}
-
 	// Reflected pass stored in index 1
-	mFrameResource->PassCB->UploadData(md3dImmediateContext, 1, mReflectedPassCB);
+	mFrameResource->PassCB->UploadData(md3dImmediateContext, 1, reflectedPassCB);
+	mConstantBuffers["ReflectedPass"] = mFrameResource->PassCB->Resource(1);
 }
 
 std::array<const CD3D11_SAMPLER_DESC, 6> StencilDemo::GetStaticSamplers()
