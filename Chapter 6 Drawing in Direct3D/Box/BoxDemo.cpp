@@ -204,8 +204,6 @@ void BoxApp::UpdateScene(float dt)
 	ObjectConstants obj;
 	obj.worldViewProj = worldViewProj;
 	mCurrFrameResource->ObjectCB->CopyData(0, obj);
-
-	mCurrFrameResource->ObjectCB->UploadData(md3dImmediateContext);
 }
 
 void BoxApp::DrawScene()
@@ -216,6 +214,11 @@ void BoxApp::DrawScene()
 	md3dImmediateContext->IASetInputLayout(mInputLayout.Get());
 	md3dImmediateContext->VSSetShader(pVertexShader.Get(), nullptr, 0);
 	md3dImmediateContext->PSSetShader(pPixelShader.Get(), nullptr, 0);
+
+	std::array<ID3D11Buffer*, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT> ConstBuffer;
+	ConstBuffer[0] = mCurrFrameResource->ObjectCB->Resource();
+	md3dImmediateContext->VSSetConstantBuffers(0, 1, ConstBuffer.data());
+	md3dImmediateContext->PSSetConstantBuffers(0, 1, ConstBuffer.data());
 
 	for (size_t i = 0; i < mAllRitems.size(); ++i) {
 		auto& ri = mAllRitems[i];
@@ -229,10 +232,7 @@ void BoxApp::DrawScene()
 		UINT vstride = geo->VertexByteStride, offset = 0;
 		md3dImmediateContext->IASetVertexBuffers(0, 1, &pvb, &vstride, &offset);
 
-		std::array<ID3D11ShaderResourceView*, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT> ShaderResourceViews;
-		ShaderResourceViews[0] = mCurrFrameResource->ObjectCB->GetView(i);
-		md3dImmediateContext->VSSetShaderResources(0, 1, ShaderResourceViews.data());
-		md3dImmediateContext->PSSetShaderResources(0, 1, ShaderResourceViews.data());
+		mCurrFrameResource->ObjectCB->UploadData(md3dImmediateContext, i);
 
 		md3dImmediateContext->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
 	}

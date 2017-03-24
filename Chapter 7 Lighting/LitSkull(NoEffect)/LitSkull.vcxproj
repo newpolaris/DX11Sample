@@ -119,6 +119,7 @@
     <ClInclude Include="..\..\Common\ShaderFactoryDX11.h" />
     <ClInclude Include="..\..\Common\UploadBuffer.h" />
     <ClInclude Include="..\..\Common\Waves.h" />
+    <ClInclude Include="ConstantBuffer.h" />
     <ClInclude Include="Effects.h" />
     <ClInclude Include="FrameResource.h" />
   </ItemGroup>
