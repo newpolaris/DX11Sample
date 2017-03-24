@@ -476,6 +476,7 @@ struct Texture
 
 	std::wstring Filename;
 
+	Microsoft::WRL::ComPtr<ID3D11Resource> texture;
 	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> Resource = nullptr;
 };
 

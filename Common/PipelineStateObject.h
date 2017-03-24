@@ -22,11 +22,12 @@ struct DepthStencilState
 
 struct PipelineStateDesc
 {
-	PipelineStateDesc(std::string il, std::string vs, std::string ps) 
-	 : IL(il), VS(vs), PS(ps) {}
+	PipelineStateDesc(std::string il, std::string vs, std::string ps, std::string gs = "") 
+	 : IL(il), VS(vs), PS(ps), GS(gs) {}
 	std::string IL;
 	std::string VS;
 	std::string PS;
+	std::string GS;
 	std::string BS;
 	std::array<FLOAT, 4> BlendFactor = { 1.f, 1.f, 1.f, 1.f };
 	UINT SampleMask = 0xFFFFFFFF;
@@ -41,6 +42,7 @@ struct PipelineStateObject
 	ID3D11InputLayout* pIL = nullptr;
 	ID3D11VertexShader* pVS = nullptr;
 	ID3D11PixelShader* pPS = nullptr;
+	ID3D11GeometryShader* pGS = nullptr;
 	BlendState blend;
 	DepthStencilState depthStencil;
 	ID3D11RasterizerState* pResterizer = nullptr;
