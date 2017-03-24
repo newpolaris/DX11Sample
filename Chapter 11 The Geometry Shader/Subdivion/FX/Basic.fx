@@ -74,45 +74,100 @@ struct VertexIn
 };
 
 struct VertexOut
-{
+{	
+    float3 PosL    : POSITION;
+    float3 NormalW : NORMAL;
+};
+
+struct GeoOut
+{	
 	float4 PosH    : SV_POSITION;
     float3 PosW    : POSITION;
     float3 NormalW : NORMAL;
-	float2 TexC    : TEXCOORD;
 };
 
 VertexOut VS(VertexIn vin)
 {
 	VertexOut vout = (VertexOut)0.0f;
 	
-	// Transform to world space space.
-	float4 PosW = mul(float4(vin.PosL, 1.0f), gWorld);
-	vout.PosW = PosW.xyz;
-
+	vout.PosL = vin.PosL;
 	vout.NormalW = mul(vin.NormalL, (float3x3)gWorldInvTranspose);
-		
-	vout.PosH = mul(PosW, gViewProj);
-
-	// Transform to homogeneous clip space.
-	float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform);
-	vout.TexC = mul(texC, gMatTransform).xy;
 	
 	return vout;
 }
 
-[maxvertexcount(32)]
-void GS(triangle VertexOut gin[3],  inout TriangleStream<VertexOut> triStream)
+void Subdivide(VertexOut gin[3], out VertexOut outVerts[6])
 {
-	triStream.Append(gin[0]);
-	triStream.Append(gin[1]);
-	triStream.Append(gin[2]);
+	//       1
+	//       *
+	//      / \
+	//     /   \
+	//  m0*-----*m1
+	//   / \   / \
+	//  /   \ /   \
+	// *-----*-----*
+	// 0    m2     2
+
+	VertexOut m[3];	
+	m[0].PosL = 0.5*(gin[0].PosL+gin[1].PosL);
+	m[1].PosL = 0.5*(gin[2].PosL+gin[1].PosL);
+	m[2].PosL = 0.5*(gin[2].PosL+gin[0].PosL);
+	m[0].PosL = normalize(m[0].PosL);
+	m[1].PosL = normalize(m[1].PosL);
+	m[2].PosL = normalize(m[2].PosL);
+	m[0].NormalW = normalize(gin[0].NormalW+gin[1].NormalW);
+	m[1].NormalW = normalize(gin[2].NormalW+gin[1].NormalW);
+	m[2].NormalW = normalize(gin[2].NormalW+gin[0].NormalW);
+	
+	outVerts[0] = gin[0];
+	outVerts[1] = m[0];
+	outVerts[2] = m[2];
+	outVerts[3] = m[1];
+	outVerts[4] = gin[2];
+	outVerts[5] = gin[1];
+}
+
+[maxvertexcount(32)]
+void GS(triangle VertexOut gin[3], inout TriangleStream<GeoOut> triStream)
+{
+	float d = distance(gEyePosW, float3(0, 0, 0));
+	if (d < 5) {
+		VertexOut vout[6];
+		Subdivide(gin, vout);
+		GeoOut gout[6];
+		[unroll]
+		for (int i = 0; i < 6; ++i)
+		{
+			// Transform to world space space. 
+			gout[i].PosW = mul(float4(vout[i].PosL, 1.0f), gWorld).xyz;
+			gout[i].NormalW = vout[i].NormalW;
+			gout[i].PosH = mul(float4(gout[i].PosW, 1.0f), gViewProj);
+		}
+		[unroll]
+		for (int i = 0; i < 5; i++)
+			triStream.Append(gout[i]);
+		triStream.RestartStrip();
+		triStream.Append(gout[1]);
+		triStream.Append(gout[5]);
+		triStream.Append(gout[3]);
+	} else {
+		GeoOut gout[3];
+		[unroll]
+		for (int i = 0; i < 3; ++i)
+		{
+			gout[i].PosW = mul(float4(gin[i].PosL, 1.0f), gWorld).xyz;
+			gout[i].NormalW = gin[i].NormalW;
+			gout[i].PosH = mul(float4(gout[i].PosW, 1.0f), gViewProj);
+		}
+		triStream.Append(gout[0]);
+		triStream.Append(gout[1]);
+		triStream.Append(gout[2]);
+	}
 }
  
-float4 PS(VertexOut pin) : SV_Target
+float4 PS(GeoOut pin) : SV_Target
 {
-    float4 texColor = float4(1.0, 1.0, 1.0, 1.0);
-	texColor = gDiffuseMap.Sample(samAnisotropic, pin.TexC);
-    float4 diffuseAlbedo = texColor * gDiffuseAlbedo;
+    float4 diffuseAlbedo = gDiffuseAlbedo;
 
 	// Interpolating normal can unnormalize it, so normalize it.
     pin.NormalW = normalize(pin.NormalW);

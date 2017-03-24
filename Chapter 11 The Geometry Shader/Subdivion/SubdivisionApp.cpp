@@ -175,7 +175,7 @@ TreeBillboardsApp::TreeBillboardsApp(HINSTANCE hInstance)
 : D3DApp(hInstance),
   mEyePos(0.0f, 0.0f, 0.0f), mTheta(1.5f*MathHelper::Pi), mPhi(0.1f*MathHelper::Pi), mRadius(15.0f)
 {
-	mMainWndCaption = L"TreeBillboards Demo";
+	mMainWndCaption = L"Subdivision Demo";
 	
 	mLastMousePos.x = 0;
 	mLastMousePos.y = 0;
@@ -439,10 +439,10 @@ void TreeBillboardsApp::BuildSphereGeometryBuffers()
 
 	// Create icosahedron, which we will tessellate into a sphere.
 	GeometryGenerator geoGen;
-	geoGen.CreateGeosphere(5.0f, 0, sphere);
+	geoGen.CreateGeosphere(1.0f, 0, sphere);
 
-    const UINT vbByteSize = (UINT)sphere.Vertices.size() * sizeof(decltype(sphere.Vertices));
-    const UINT ibByteSize = (UINT)sphere.Indices.size() * sizeof(decltype(sphere.Indices));
+    const UINT vbByteSize = (UINT)sphere.Vertices.size() * sizeof(GeometryGenerator::Vertex);
+    const UINT ibByteSize = (UINT)sphere.Indices.size() * sizeof(UINT);
 
 	SubmeshGeometry sphereSubmesh;
 	sphereSubmesh.IndexCount = sphere.Indices.size();
@@ -456,7 +456,7 @@ void TreeBillboardsApp::BuildSphereGeometryBuffers()
 	geo->IndexBufferGPU = d3dHelper::CreateIndexBuffer(
 		md3dDevice, sphere.Indices.data(), ibByteSize);
 
-	geo->VertexByteStride = sizeof(decltype(sphere.Vertices));
+	geo->VertexByteStride = sizeof(GeometryGenerator::Vertex);
 	geo->VertexBufferByteSize = vbByteSize;
 	geo->IndexFormat = DXGI_FORMAT_R32_UINT;
 	geo->IndexBufferByteSize = ibByteSize;
@@ -680,5 +680,10 @@ void TreeBillboardsApp::CreatePSO(RenderLayer layer, const PipelineStateDesc& de
 
 void TreeBillboardsApp::BuildPSO()
 {
-	CreatePSO(RenderLayer::Solid, { "solid", "solid", "solid", "solid" });
+	CD3D11_RASTERIZER_DESC wireframeDesc(D3D11_DEFAULT);
+	wireframeDesc.FillMode = D3D11_FILL_WIREFRAME;
+	CreateResterizerState("wireframe", wireframeDesc);
+	PipelineStateDesc desc = { "solid", "solid", "solid", "solid" };
+	desc.RS = "wireframe";
+	CreatePSO(RenderLayer::Solid, desc);
 }
