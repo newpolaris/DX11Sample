@@ -684,6 +684,5 @@ void TreeBillboardsApp::BuildPSO()
 	wireframeDesc.FillMode = D3D11_FILL_WIREFRAME;
 	CreateResterizerState("wireframe", wireframeDesc);
 	PipelineStateDesc desc = { "solid", "solid", "solid", "solid" };
-	desc.RS = "wireframe";
 	CreatePSO(RenderLayer::Solid, desc);
 }
