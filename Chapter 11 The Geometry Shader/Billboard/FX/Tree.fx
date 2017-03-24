@@ -159,6 +159,6 @@ float4 PS(GeoOut pin) : SV_Target
     float4 litColor = ambient + directLight;
 
     // Common convention to take alpha from diffuse material.
-    litColor.a = gDiffuseAlbedo.a;
+    litColor.a = gDiffuseAlbedo.a * texColor.a;
     return litColor;
 }
