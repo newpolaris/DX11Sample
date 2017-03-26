@@ -209,7 +209,7 @@ BlurApp::BlurApp(HINSTANCE hInstance)
 : D3DApp(hInstance),
   mEyePos(0.0f, 0.0f, 0.0f), mTheta(1.5f*MathHelper::Pi), mPhi(0.1f*MathHelper::Pi), mRadius(15.0f)
 {
-	mMainWndCaption = L"Subdivision Demo";
+	mMainWndCaption = L"Luna's computed shader blur Demo";
 	
 	mLastMousePos.x = 0;
 	mLastMousePos.y = 0;
@@ -264,8 +264,8 @@ void BlurApp::OnResize()
 
 	mBlur.Init(
 		md3dDevice,
-		mClientWidth/2,
-		mClientHeight/2,
+		mClientWidth,
+		mClientHeight,
 		DXGI_FORMAT_R8G8B8A8_UNORM );
 
 	mProj = XMMatrixPerspectiveFovLH(0.25f*MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
@@ -521,27 +521,18 @@ void BlurApp::DrawScene()
 	md3dImmediateContext->ClearRenderTargetView(mOffscreenRTV.Get(), reinterpret_cast<const float*>(&Colors::LightSteelBlue));
 	md3dImmediateContext->ClearDepthStencilView(mDepthStencilView, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 
-	D3D11_VIEWPORT viewport;
-	viewport.TopLeftX = 0;
-	viewport.TopLeftY = 0;
-	viewport.Width    = static_cast<float>(mClientWidth/2);
-	viewport.Height   = static_cast<float>(mClientHeight/2);
-	viewport.MinDepth = 0.0f;
-	viewport.MaxDepth = 1.0f;
-	md3dImmediateContext->RSSetViewports(1, &viewport);
-
 	DrawItems();
 
 	rt[0] = mRenderTargetView;
 	md3dImmediateContext->OMSetRenderTargets(rt.size(), rt.data(), mDepthStencilView);
 
 	// Apply bluring in compute shader
-	mBlur.BlurInPlace(md3dImmediateContext, mOffscreenSRV.Get(), mOffscreenUAV.Get(), 1);
+	// Shader set 의 cost는 현재 거의 보이지 않음. Pass 당 0.7 ms 씩 증가함
+	mBlur.BlurInPlace(md3dImmediateContext, mOffscreenSRV.Get(), mOffscreenUAV.Get(), 4);
 
 	md3dImmediateContext->ClearRenderTargetView(mRenderTargetView, reinterpret_cast<const float*>(&Colors::LightSteelBlue));
 	md3dImmediateContext->ClearDepthStencilView(mDepthStencilView, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 
-	md3dImmediateContext->RSSetViewports(1, &mScreenViewport);
 	DrawScreen();
 
 	ID3D11ShaderResourceView* null[] = { nullptr, nullptr };
@@ -1107,7 +1098,7 @@ void BlurApp::BuildOffScreenBuffer()
 {
 	CD3D11_TEXTURE2D_DESC desc {
 		DXGI_FORMAT_R8G8B8A8_UNORM,
-		(UINT)mClientWidth/2, (UINT)mClientHeight/2,
+		(UINT)mClientWidth, (UINT)mClientHeight,
 		1, 1,
 		D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET | D3D11_BIND_UNORDERED_ACCESS
 	};
