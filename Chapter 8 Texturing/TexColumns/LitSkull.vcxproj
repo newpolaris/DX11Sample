@@ -107,7 +107,7 @@
     <ClCompile Include="..\..\Common\ShaderFactoryDX11.cpp" />
     <ClCompile Include="..\..\Common\Waves.cpp" />
     <ClCompile Include="FrameResource.cpp" />
-    <ClCompile Include="LitSkullDemo.cpp" />
+    <ClCompile Include="TexSkullApp.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Common\d3dApp.h" />

@@ -66,11 +66,11 @@ struct RenderItem
     int BaseVertexLocation = 0;
 };
 
-class LitSkullApp : public D3DApp 
+class TexSkullApp : public D3DApp 
 {
 public:
-	LitSkullApp(HINSTANCE hInstance);
-	~LitSkullApp();
+	TexSkullApp(HINSTANCE hInstance);
+	~TexSkullApp();
 
 	bool Init();
 	void OnResize();
@@ -145,7 +145,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 	_CrtSetDbgFlag( _CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF );
 #endif
 
-	LitSkullApp theApp(hInstance);
+	TexSkullApp theApp(hInstance);
 	
 	if( !theApp.Init() )
 		return 0;
@@ -154,7 +154,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 }
  
 
-LitSkullApp::LitSkullApp(HINSTANCE hInstance)
+TexSkullApp::TexSkullApp(HINSTANCE hInstance)
 : D3DApp(hInstance), mLightCount(1),
   mEyePosW(0.0f, 0.0f, 0.0f), mTheta(1.5f*MathHelper::Pi), mPhi(0.1f*MathHelper::Pi), mRadius(15.0f)
 {
@@ -184,11 +184,11 @@ LitSkullApp::LitSkullApp(HINSTANCE hInstance)
 	}
 }
 
-LitSkullApp::~LitSkullApp()
+TexSkullApp::~TexSkullApp()
 {
 }
 
-bool LitSkullApp::Init()
+bool TexSkullApp::Init()
 {
 	if (!D3DApp::Init())
 		return false;
@@ -205,14 +205,14 @@ bool LitSkullApp::Init()
 	return true;
 }
 
-void LitSkullApp::OnResize()
+void TexSkullApp::OnResize()
 {
 	D3DApp::OnResize();
 
 	mProj = XMMatrixPerspectiveFovLH(0.25f*MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
 }
 
-void LitSkullApp::BuildFX()
+void TexSkullApp::BuildFX()
 {
 	D3D_SHADER_MACRO textureMacros[] = { "TEXTURE", "1", NULL, NULL };
 	CompileShaderVS("texture", textureMacros, L"FX/Basic.fx", "VS", "vs_5_0");
@@ -221,7 +221,7 @@ void LitSkullApp::BuildFX()
 	CompileShaderPS("standard", nullptr, L"FX/Basic.fx", "PS", "ps_5_0");
 }
 
-void LitSkullApp::CompileShaderVS(
+void TexSkullApp::CompileShaderVS(
 	std::string name, 
 	D3D_SHADER_MACRO* defines, 
 	const std::wstring & filename,
@@ -234,7 +234,7 @@ void LitSkullApp::CompileShaderVS(
 	mVShaders.insert({ name, { blob, vs } });
 }
 
-void LitSkullApp::CompileShaderPS(
+void TexSkullApp::CompileShaderPS(
 	std::string name, 
 	D3D_SHADER_MACRO* defines, 
 	const std::wstring & filename,
@@ -247,7 +247,7 @@ void LitSkullApp::CompileShaderPS(
 	mPShaders.insert({ name, { blob, ps } });
 }
 
-void LitSkullApp::BuildVertexLayout()
+void TexSkullApp::BuildVertexLayout()
 {
 	// Create the vertex input layout.
 	std::vector<D3D11_INPUT_ELEMENT_DESC> ILTex = {
@@ -281,7 +281,7 @@ void LitSkullApp::BuildVertexLayout()
 	mLayout["standard"] = pLayout;
 }
 
-void LitSkullApp::BuildMaterials()
+void TexSkullApp::BuildMaterials()
 {
 	auto bricks0 = std::make_unique<MaterialFresnel>();
 	bricks0->Name = "bricks0";
@@ -320,7 +320,7 @@ void LitSkullApp::BuildMaterials()
 	mMaterials["skullMat"] = std::move(skullMat);
 }
 
-void LitSkullApp::UpdateScene(float dt)
+void TexSkullApp::UpdateScene(float dt)
 {
     // Cycle through the circular frame resource array.
 	// Convert Spherical to Cartesian coordinates.
@@ -361,7 +361,7 @@ bool chkupdate(T& pre, T& next) {
 	return true;
 }
 
-void LitSkullApp::DrawScene()
+void TexSkullApp::DrawScene()
 {
 	md3dImmediateContext->ClearRenderTargetView(mRenderTargetView, reinterpret_cast<const float*>(&Colors::LightSteelBlue));
 	md3dImmediateContext->ClearDepthStencilView(mDepthStencilView, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
@@ -415,7 +415,7 @@ void LitSkullApp::DrawScene()
 	HR(mSwapChain->Present(0, 0));
 }
 
-void LitSkullApp::OnMouseDown(WPARAM btnState, int x, int y)
+void TexSkullApp::OnMouseDown(WPARAM btnState, int x, int y)
 {
 	mLastMousePos.x = x;
 	mLastMousePos.y = y;
@@ -423,12 +423,12 @@ void LitSkullApp::OnMouseDown(WPARAM btnState, int x, int y)
 	SetCapture(mhMainWnd);
 }
 
-void LitSkullApp::OnMouseUp(WPARAM btnState, int x, int y)
+void TexSkullApp::OnMouseUp(WPARAM btnState, int x, int y)
 {
 	ReleaseCapture();
 }
 
-void LitSkullApp::OnMouseMove(WPARAM btnState, int x, int y)
+void TexSkullApp::OnMouseMove(WPARAM btnState, int x, int y)
 {
 	if( (btnState & MK_LBUTTON) != 0 )
 	{
@@ -460,13 +460,13 @@ void LitSkullApp::OnMouseMove(WPARAM btnState, int x, int y)
 	mLastMousePos.y = y;
 }
 
-void LitSkullApp::BuildGeometry()
+void TexSkullApp::BuildGeometry()
 {
 	BuildShapeGeometryBuffers();
 	BuildSkullGeometryBuffers();
 }
 
-void LitSkullApp::BuildShapeGeometryBuffers()
+void TexSkullApp::BuildShapeGeometryBuffers()
 {
 	GeometryGenerator::MeshData box;
 	GeometryGenerator::MeshData grid;
@@ -596,7 +596,7 @@ void LitSkullApp::BuildShapeGeometryBuffers()
 	mGeometries[geo->Name] = std::move(geo);
 }
  
-void LitSkullApp::BuildSkullGeometryBuffers()
+void TexSkullApp::BuildSkullGeometryBuffers()
 {
 	std::ifstream fin("Models/skull.txt");
 	
@@ -658,7 +658,7 @@ void LitSkullApp::BuildSkullGeometryBuffers()
 	mGeometries[geo->Name] = std::move(geo);
 }
 
-void LitSkullApp::LoadTextures()
+void TexSkullApp::LoadTextures()
 {
 	auto bricksTex = std::make_unique<Texture>();
 	bricksTex->Name = "bricksTex";
@@ -691,7 +691,7 @@ void LitSkullApp::LoadTextures()
 	mTextures[tileTex->Name] = std::move(tileTex);
 }
 
-void LitSkullApp::BuildRenderItems()
+void TexSkullApp::BuildRenderItems()
 {
 	auto gridRitem = std::make_unique<RenderItem>();
 	gridRitem->ObjCBIndex = 0;
@@ -816,7 +816,7 @@ void LitSkullApp::BuildRenderItems()
 	mAllRitems.push_back(std::move(skullRitem));
 }
  
-void LitSkullApp::BuildFrameResources()
+void TexSkullApp::BuildFrameResources()
 {
 	mFrameResource = std::make_unique<FrameResource>(md3dDevice, 1, (UINT)mAllRitems.size(), (UINT)mMaterials.size());
 
@@ -841,7 +841,7 @@ void LitSkullApp::BuildFrameResources()
 	}
 }
 
-void LitSkullApp::UpdateMainPassCB(float dt)
+void TexSkullApp::UpdateMainPassCB(float dt)
 {
 	XMMATRIX viewProj = XMMatrixMultiply(mView, mProj);
 	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(mView), mView);
@@ -873,7 +873,7 @@ void LitSkullApp::UpdateMainPassCB(float dt)
 	mFrameResource->PassCB->UploadData(md3dImmediateContext, 0, MainPassCB);
 }
 
-std::array<const CD3D11_SAMPLER_DESC, 6> LitSkullApp::GetStaticSamplers()
+std::array<const CD3D11_SAMPLER_DESC, 6> TexSkullApp::GetStaticSamplers()
 {
 	// Applications usually only need a handful of samplers.  So just define them all up front
 	// and keep them available as part of the root signature.  
@@ -926,7 +926,7 @@ std::array<const CD3D11_SAMPLER_DESC, 6> LitSkullApp::GetStaticSamplers()
 		anisotropicWrap, anisotropicClamp };
 }
 
-void LitSkullApp::BuildSamplerState() 
+void TexSkullApp::BuildSamplerState() 
 {
 	auto state = GetStaticSamplers();
 	for (auto s : state) {

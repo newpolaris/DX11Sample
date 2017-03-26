@@ -47,13 +47,13 @@
     <ClCompile Include="..\..\Common\Waves.cpp">
       <Filter>Common</Filter>
     </ClCompile>
-    <ClCompile Include="LitSkullDemo.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\Common\ShaderFactoryDX11.cpp">
       <Filter>Common</Filter>
     </ClCompile>
     <ClCompile Include="FrameResource.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="TexSkullApp.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
