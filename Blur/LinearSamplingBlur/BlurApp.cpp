@@ -211,7 +211,7 @@ BlurApp::BlurApp(HINSTANCE hInstance)
 : D3DApp(hInstance),
   mEyePos(0.0f, 0.0f, 0.0f), mTheta(1.5f*MathHelper::Pi), mPhi(0.1f*MathHelper::Pi), mRadius(15.0f)
 {
-	mMainWndCaption = L"Simple pixel shader blur Demo";
+	mMainWndCaption = L"Linear Sampling pixel shader blur Demo";
 	
 	mLastMousePos.x = 0;
 	mLastMousePos.y = 0;
@@ -284,8 +284,8 @@ void BlurApp::BuildFX()
 	CompileShader(VertexShader, "screen", nullptr, L"FX/screen.fx", "VS", "vs_5_0");
 	CompileShader(PixelShader, "screen", nullptr, L"FX/screen.fx", "PS", "ps_5_0");
 	CompileShader(VertexShader, "screen", nullptr, L"FX/screen.fx", "VS", "vs_5_0");
-	CompileShader(PixelShader, "blurVertPS", nullptr,  L"FX/Blur.fx", "VertBlurPS", "ps_5_0" );
-	CompileShader(PixelShader, "blurHorzPS", nullptr,  L"FX/Blur.fx", "HorzBlurPS", "ps_5_0" );
+	CompileShader(PixelShader, "blurVertPS", nullptr,  L"FX/BlurOdd.fx", "VertBlurPS", "ps_5_0" );
+	CompileShader(PixelShader, "blurHorzPS", nullptr,  L"FX/BlurOdd.fx", "HorzBlurPS", "ps_5_0" );
 
 	mBlur.SetShader( { GetVertexShader("screen"), GetPixelShader("blurVertPS"), GetPixelShader("blurHorzPS") } );
 }
@@ -543,7 +543,7 @@ void BlurApp::DrawScene()
 	UINT vstride = geo->VertexByteStride, offset = 0;
 	md3dImmediateContext->IASetVertexBuffers(0, 1, &pvb, &vstride, &offset);
 
-	Sampler[0] = mSamplerState[1].Get();
+	Sampler[0] = mSamplerState[3].Get();
 	md3dImmediateContext->PSSetSamplers(0, 1, Sampler.data());
 	// --- // 
 

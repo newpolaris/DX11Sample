@@ -101,7 +101,7 @@ void BlurFilter::Init(ID3D11Device* device, UINT width, UINT height, DXGI_FORMAT
 	// Views save a reference to the texture so we can release our reference.
 	ReleaseCOM(blurredTex);
 
-	BuildWeight(4);
+	BuildWeight(5);
 }
 
 void BlurFilter::BuildWeight(int radius)
@@ -135,23 +135,26 @@ void BlurFilter::BuildWeight(int radius)
 		offset[i] = static_cast<float>(i);
 		weight[i] = static_cast<float>(coeffients[i+radius])/sum;
 	}
+	weight = { 0.2f, 0.1f, 0.1f, 0.1f, 0.05f, 0.05f };
 
 	// Quarter sized kernel
 	// even number 는 0 번을 빼고 나머지를 따로 하면 된다
-	// odd number 는 0 번 weight를 따로 하지 않고, (-1,0), (0,1) 로 묶으면 된다
+	// odd number 는 (-3,-2), (-1, 0),... (3) 으로 묶으면 된다
 	if (radius % 2 == 1) {
-		int quarter_size = (radius+1)/2;
-		std::vector<float> qoffset(quarter_size), qweight(quarter_size);
-		for (int i = 0; i < quarter_size; i++) {
-			qweight[i] = weight[2*i] + weight[2*i+1];
-			qoffset[i] = offset[2*i]*weight[2*i] + offset[2*i+1]*weight[2*i+1];
-			qoffset[i] /= qweight[i];
+		std::vector<float> qoffset, qweight;
+		for (int i = -radius; i < radius; i+=2) {
+			auto l = abs(i), r = abs(i+1);
+			qweight.push_back(weight[l] + weight[r]);
+			qoffset.push_back(i*weight[l] + (i+1)*weight[r]);
+			qoffset.back() /= qweight.back();
 		}
+		qoffset.push_back(radius);
+		qweight.push_back(weight[radius]);
 	} else {
 		int quarter_size = radius/2 + 1;
 		std::vector<float> qoffset(quarter_size), qweight(quarter_size);
 		qoffset[0] = 0.f;
-		qweight[0] =  weight[0];
+		qweight[0] = weight[0];
 		for (int i = 0; i < quarter_size-1; i++) {
 			qweight[1+i] = weight[1+2*i] + weight[1+2*i+1];
 			qoffset[1+i] = offset[1+2*i]*weight[1+2*i] + offset[1+2*i+1]*weight[1+2*i+1];
