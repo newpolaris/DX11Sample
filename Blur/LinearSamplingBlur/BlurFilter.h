@@ -33,6 +33,8 @@ public:
 	///</summary>
 	void Init(ID3D11Device* device, UINT width, UINT height, DXGI_FORMAT format);
 
+	void BuildWeight(int radius);
+
 	void BlurInPlace(ID3D11DeviceContext * dc, ID3D11ShaderResourceView * inputSRV, ID3D11RenderTargetView* inputRTV, ID3D11DepthStencilView * depthSten, int blurCount);
 
 	void SetShader(std::vector<ID3D11DeviceChild*> shader);

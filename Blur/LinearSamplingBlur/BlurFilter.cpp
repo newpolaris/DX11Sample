@@ -4,6 +4,10 @@
 
 #include "BlurFilter.h"
 #include "Effects.h"
+#include <algorithm>
+#include <iterator>
+#include <string.h>
+#include <numeric>
 
 BlurFilter::BlurFilter()
   : mBlurredOutputTexSRV(0), mBlurredOutputTexUAV(0), mBlurredOutputTexRTV(0)
@@ -96,6 +100,64 @@ void BlurFilter::Init(ID3D11Device* device, UINT width, UINT height, DXGI_FORMAT
 
 	// Views save a reference to the texture so we can release our reference.
 	ReleaseCOM(blurredTex);
+
+	BuildWeight(4);
+}
+
+void BlurFilter::BuildWeight(int radius)
+{
+	const int max_coeff = 50;
+	int kernel_n = (radius)*2+1;
+	// 좌우 2개씩 뺀다. 좀더 가중치 높은 것들만 남기기 위해
+	int selected_row = kernel_n + 3; 
+	assert(max_coeff > kernel_n);
+	int coeff[max_coeff][max_coeff];
+	memset(coeff, 0, sizeof(coeff));
+	auto fill_coeff = [&](int n) {
+		coeff[n][0] = coeff[n][n] = 1;
+		for (int i = 1; i < n; i++)
+			coeff[n][i] = coeff[n-1][i-1] + coeff[n-1][i];
+	};
+	for (int i = 0; i <= selected_row; i++)
+		fill_coeff(i);
+
+	std::vector<int> coeffients;
+	int* st = coeff[selected_row] + 2;
+	int* en = st + kernel_n;
+	std::copy(st, en, std::back_inserter(coeffients));
+	int sum = std::accumulate(coeffients.begin(), coeffients.end(), 0);
+	assert(sum != 0);
+
+	// Half sized kernel
+	int half_size = 1 + radius;
+	std::vector<float> offset(half_size), weight(half_size);
+	for (int i = 0; i < half_size; i++) {
+		offset[i] = static_cast<float>(i);
+		weight[i] = static_cast<float>(coeffients[i+radius])/sum;
+	}
+
+	// Quarter sized kernel
+	// even number 는 0 번을 빼고 나머지를 따로 하면 된다
+	// odd number 는 0 번 weight를 따로 하지 않고, (-1,0), (0,1) 로 묶으면 된다
+	if (radius % 2 == 1) {
+		int quarter_size = (radius+1)/2;
+		std::vector<float> qoffset(quarter_size), qweight(quarter_size);
+		for (int i = 0; i < quarter_size; i++) {
+			qweight[i] = weight[2*i] + weight[2*i+1];
+			qoffset[i] = offset[2*i]*weight[2*i] + offset[2*i+1]*weight[2*i+1];
+			qoffset[i] /= qweight[i];
+		}
+	} else {
+		int quarter_size = radius/2 + 1;
+		std::vector<float> qoffset(quarter_size), qweight(quarter_size);
+		qoffset[0] = 0.f;
+		qweight[0] =  weight[0];
+		for (int i = 0; i < quarter_size-1; i++) {
+			qweight[1+i] = weight[1+2*i] + weight[1+2*i+1];
+			qoffset[1+i] = offset[1+2*i]*weight[1+2*i] + offset[1+2*i+1]*weight[1+2*i+1];
+			qoffset[1+i] /= qweight[1+i];
+		}
+	}
 }
 
 void BlurFilter::BlurInPlace(ID3D11DeviceContext* dc, 

@@ -3,7 +3,6 @@ RWTexture2D<float4> gOutput;
 
 SamplerState gsamPointClamp       : register(s0);
 
-// groupshared float4 gCache[10];
 struct VertexIn
 {
 	float3 PosL    : POSITION;
@@ -27,28 +26,32 @@ VertexOut VS(VertexIn vin)
 
 float4 HorzBlurPS(VertexOut pin) : SV_Target
 {
-	float gWeights[11] = { 0.05f, 0.05f, 0.1f, 0.1f, 0.1f, 0.2f, 0.1f, 0.1f, 0.1f, 0.05f, 0.05f, };
-	static const int gBlurRadius = 5;
+	static const float offset[3] = { 0.0, 1.384615, 3.2307692308 };
+	static const float weight[3] = { 0.227027, 0.3162162162, 0.0702702703 };
+	static const int gBlurRadius = 3;
+	static const int width = 1920;
 
 	float4 blurColor = float4(0, 0, 0, 0);
-	for (int i = - gBlurRadius; i <= gBlurRadius; ++i) {
-		float k = float(i)/800 + pin.TexC.x;
-		float2 texPos = float2(k, pin.TexC.y);
-		blurColor += gWeights[i+gBlurRadius] * gDiffuseMap.Sample(gsamPointClamp, texPos);
+	blurColor = gDiffuseMap.Sample(gsamPointClamp, pin.TexC) * weight[0];
+	for (int i = 1; i < gBlurRadius; i++) {
+		blurColor += weight[i] * gDiffuseMap.Sample(gsamPointClamp, pin.TexC + float2(offset[i]/width, 0.f));
+		blurColor += weight[i] * gDiffuseMap.Sample(gsamPointClamp, pin.TexC - float2(offset[i]/width, 0.f));
 	}
 	return blurColor;
 }
 
 float4 VertBlurPS(VertexOut pin) : SV_Target
 {
-	float gWeights[11] = { 0.05f, 0.05f, 0.1f, 0.1f, 0.1f, 0.2f, 0.1f, 0.1f, 0.1f, 0.05f, 0.05f, };
-	static const int gBlurRadius = 5;
+	static const float offset[3] = { 0.0, 1.384615, 3.2307692308 };
+	static const float weight[3] = { 0.227027, 0.3162162162, 0.0702702703 };
+	static const int gBlurRadius = 3;
+	static const int height = 1200;
 
 	float4 blurColor = float4(0, 0, 0, 0);
-	for (int i = - gBlurRadius; i <= gBlurRadius; ++i) {
-		float k = float(i)/600 + pin.TexC.y;
-		float2 texPos = float2(pin.TexC.x, k);
-		blurColor += gWeights[i+gBlurRadius] * gDiffuseMap.Sample(gsamPointClamp, texPos);
+	blurColor = gDiffuseMap.Sample(gsamPointClamp, pin.TexC) * weight[0];
+	for (int i = 1; i < gBlurRadius; i++) {
+		blurColor += weight[i] * gDiffuseMap.Sample(gsamPointClamp, pin.TexC + float2(0.f, offset[i]/height));
+		blurColor += weight[i] * gDiffuseMap.Sample(gsamPointClamp, pin.TexC - float2(0.f, offset[i]/height));
 	}
 	return blurColor;
 }
