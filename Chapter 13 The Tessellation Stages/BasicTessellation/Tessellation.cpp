@@ -133,6 +133,14 @@ void BasicTessellation::UpdateScene(float dt)
 
 	XMMATRIX V = XMMatrixLookAtLH(pos, target, up);
 	XMStoreFloat4x4(&mView, V);
+
+	if( GetAsyncKeyState('A') & 0x8000 )
+		mRadius += 0.001;
+
+	if( GetAsyncKeyState('D') & 0x8000 )
+		mRadius -= 0.001;
+
+	mRadius = MathHelper::Clamp(mRadius, 5.0f, 300.0f);
 }
 
 void BasicTessellation::DrawScene()

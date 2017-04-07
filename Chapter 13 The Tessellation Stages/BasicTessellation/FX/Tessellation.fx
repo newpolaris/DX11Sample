@@ -93,7 +93,7 @@ struct HullOut
 };
 
 [domain("quad")]
-[partitioning("integer")]
+[partitioning("fractional_odd")]
 [outputtopology("triangle_cw")]
 [outputcontrolpoints(4)]
 [patchconstantfunc("ConstantHS")]
@@ -129,7 +129,7 @@ DomainOut DS(PatchTess patchTess,
 	float3 p  = lerp(v1, v2, uv.y); 
 	
 	// Displacement mapping
-	p.y = 0.3f*( p.z*sin(p.x) + p.x*cos(p.z) );
+	// p.y = 0.3f*( p.z*sin(p.x) + p.x*cos(p.z) );
 	
 	dout.PosH = mul(float4(p, 1.0f), gWorldViewProj);
 	
