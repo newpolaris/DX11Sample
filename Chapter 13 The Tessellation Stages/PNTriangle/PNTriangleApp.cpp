@@ -98,6 +98,7 @@ private:
 	void BuildVertexLayout();
 	void BuildMaterials();
 	void BuildSphereGeometryBuffers();
+	void BuildSkullGeometryBuffers();
 	void BuildGeometry();
 	void BuildRenderItems();
 	void BuildFrameResources();
@@ -176,7 +177,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 
 PNTriangleApp::PNTriangleApp(HINSTANCE hInstance)
 : D3DApp(hInstance),
-  mEyePos(0.0f, 0.0f, 0.0f), mTheta(1.5f*MathHelper::Pi), mPhi(0.1f*MathHelper::Pi), mRadius(15.0f)
+  mEyePos(0.0f, 0.0f, 0.0f), mTheta(1.5f*MathHelper::Pi), mPhi(0.3f*MathHelper::Pi), mRadius(20.0f)
 {
 	mMainWndCaption = L"PNTriangle Demo";
 	
@@ -303,7 +304,16 @@ void PNTriangleApp::BuildMaterials()
 	sphereMat->FresnelR0 = XMFLOAT3(0.07f, 0.07f, 0.07f);
 	sphereMat->Roughness = 0.3f;
 
+	auto skullMat = std::make_unique<Material>();
+	skullMat->Name = "skullMat";
+	skullMat->MatCBIndex = 1;
+	skullMat->DiffuseSrv = ""; 
+	skullMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	skullMat->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05f);
+	skullMat->Roughness = 0.3f;
+
 	mMaterials[sphereMat->Name] = std::move(sphereMat);
+	mMaterials[skullMat->Name] = std::move(skullMat);
 }
 
 void PNTriangleApp::UpdateScene(float dt)
@@ -321,16 +331,16 @@ void PNTriangleApp::OnKeyBoardInput(float dt)
 void PNTriangleApp::UpdateCamera(float dt)
 {
 	if( GetAsyncKeyState('W') & 0x8000 )
-		mTessFactor += 0.001f;
+		mTessFactor += 10.f * dt;
 	if( GetAsyncKeyState('S') & 0x8000 )
-		mTessFactor -= 0.001f;
+		mTessFactor -= 10.f * dt;
 	mTessFactor = MathHelper::Clamp(mTessFactor, 1.f, 9.f);
 
 	if( GetAsyncKeyState('A') & 0x8000 )
-		mRadius += 0.001f;
+		mRadius += 10.f * dt;
 
 	if( GetAsyncKeyState('D') & 0x8000 )
-		mRadius -= 0.001f;
+		mRadius -= 10.f * dt;
 
 	mRadius = MathHelper::Clamp(mRadius, 5.0f, 300.0f);
 
@@ -468,6 +478,7 @@ void PNTriangleApp::OnMouseMove(WPARAM btnState, int x, int y)
 void PNTriangleApp::BuildGeometry()
 {
 	BuildSphereGeometryBuffers();
+	BuildSkullGeometryBuffers();
 }
 
 void PNTriangleApp::BuildSphereGeometryBuffers()
@@ -503,16 +514,80 @@ void PNTriangleApp::BuildSphereGeometryBuffers()
 	mGeometries[geo->Name] = std::move(geo);
 }
 
+void PNTriangleApp::BuildSkullGeometryBuffers()
+{
+	std::ifstream fin("Models/skull.txt");
+	
+	if(!fin)
+	{
+		MessageBox(0, L"Models/skull.txt not found.", 0, 0);
+		return;
+	}
+
+	UINT vcount = 0;
+	UINT tcount = 0;
+	std::string ignore;
+
+	fin >> ignore >> vcount;
+	fin >> ignore >> tcount;
+	fin >> ignore >> ignore >> ignore >> ignore;
+	
+	std::vector<Vertex> vertices(vcount);
+	for(UINT i = 0; i < vcount; ++i)
+	{
+		fin >> vertices[i].Pos.x >> vertices[i].Pos.y >> vertices[i].Pos.z;
+		fin >> vertices[i].Normal.x >> vertices[i].Normal.y >> vertices[i].Normal.z;
+	}
+
+	fin >> ignore;
+	fin >> ignore;
+	fin >> ignore;
+
+	auto SkullIndexCount = 3*tcount;
+	std::vector<UINT> indices(SkullIndexCount);
+	for(UINT i = 0; i < tcount; ++i)
+	{
+		fin >> indices[i*3+0] >> indices[i*3+1] >> indices[i*3+2];
+	}
+
+	fin.close();
+
+	const UINT vbByteSize = sizeof(Vertex)*vertices.size();
+	const UINT ibByteSize = sizeof(UINT)*indices.size();
+
+	auto geo = std::make_unique<MeshGeometry>();
+	geo->Name = "skull";
+	geo->VertexBufferGPU = d3dHelper::CreateVertexBuffer(
+		md3dDevice, vertices.data(), vbByteSize);
+	geo->IndexBufferGPU = d3dHelper::CreateIndexBuffer(
+		md3dDevice, indices.data(), ibByteSize);
+
+	geo->VertexByteStride = sizeof(Vertex);
+	geo->VertexBufferByteSize = vbByteSize;
+	geo->IndexFormat = DXGI_FORMAT_R32_UINT;
+	geo->IndexBufferByteSize = ibByteSize;
+
+	SubmeshGeometry skull;
+	skull.IndexCount = (UINT)indices.size();
+	skull.StartIndexLocation = 0;
+	skull.BaseVertexLocation = 0;
+
+	geo->DrawArgs["skullGeo"] = skull;
+	mGeometries[geo->Name] = std::move(geo);
+}
+
+
 void PNTriangleApp::LoadTextures()
 {
 }
 
 void PNTriangleApp::BuildRenderItems()
 {
+	int idx = 0;
 	auto sphereRitem = std::make_unique<RenderItem>();
 	sphereRitem->World = MathHelper::Identity4x4();
 	sphereRitem->TexTransform = MathHelper::Identity4x4();
-	sphereRitem->ObjCBIndex = 0;
+	sphereRitem->ObjCBIndex = idx++;
 	sphereRitem->Mat = mMaterials["sphere"].get();
 	sphereRitem->Geo = mGeometries["sphereGeo"].get();
 	auto arg = "sphere";
@@ -522,9 +597,25 @@ void PNTriangleApp::BuildRenderItems()
 	sphereRitem->StartIndexLocation = drawArg.StartIndexLocation;
 	sphereRitem->BaseVertexLocation = drawArg.BaseVertexLocation;
 	sphereRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
-	mRitemLayer[(int)RenderLayer::Opaque].push_back(sphereRitem.get());
+	// mRitemLayer[(int)RenderLayer::Opaque].push_back(sphereRitem.get());
+
+	auto skullRitem = std::make_unique<RenderItem>();
+	skullRitem->World = MathHelper::Identity4x4();
+	skullRitem->TexTransform = MathHelper::Identity4x4();
+	skullRitem->ObjCBIndex = idx++;
+	skullRitem->Mat = mMaterials["skullMat"].get();
+	skullRitem->Geo = mGeometries["skull"].get();
+	skullRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+	auto skullArg = "skullGeo";
+	assert(skullRitem->Geo->DrawArgs.count(skullArg));
+	auto& skullDrawArg = skullRitem->Geo->DrawArgs[skullArg];
+	skullRitem->IndexCount = skullDrawArg.IndexCount;
+	skullRitem->StartIndexLocation = skullDrawArg.StartIndexLocation;
+	skullRitem->BaseVertexLocation = skullDrawArg.BaseVertexLocation;
+	mRitemLayer[(int)RenderLayer::Opaque].push_back(skullRitem.get());
 
 	mAllRitems.push_back(std::move(sphereRitem));
+	mAllRitems.push_back(std::move(skullRitem));
 
 	for (int i = 0; i < (int)RenderLayer::Count; i++)
 		mRenderLayerCounstBuffer[i].push_back({ 2, "MainPass" });
@@ -732,7 +823,7 @@ void PNTriangleApp::BuildPSO()
 	wireframeDesc.CullMode = D3D11_CULL_NONE;
 	CreateResterizerState("wireframe", wireframeDesc);
 	PipelineStateDesc solid = { "solid", "solid", "solid" };
-	solid.RS = "wireframe";
+	// solid.RS = "wireframe";
 	solid.DS = "TN";
 	solid.HS = "TN";
 	CreatePSO(RenderLayer::Opaque, solid);
