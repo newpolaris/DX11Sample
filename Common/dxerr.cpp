@@ -16,7 +16,6 @@
 #include "dxerr.h"
 
 #include <stdio.h>
-#include <algorithm>
 
 #if !defined(WINAPI_FAMILY) || (WINAPI_FAMILY == WINAPI_FAMILY_DESKTOP_APP)
 #include <ddraw.h>
@@ -3459,7 +3458,7 @@ void WINAPI DXGetErrorDescriptionW( _In_ HRESULT hr, _Out_cap_(count) WCHAR* des
     *desc = 0;
 
     // First try to see if FormatMessage knows this hr
-    UINT icount = static_cast<UINT>( std::min<size_t>( count, 32767 ) );
+    UINT icount = static_cast<UINT>( ( count < 32767 ? count : 32767 ) );
 
     DWORD result = FormatMessageW( FORMAT_MESSAGE_FROM_SYSTEM, nullptr, hr, 
                                    MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), desc, icount, nullptr );
