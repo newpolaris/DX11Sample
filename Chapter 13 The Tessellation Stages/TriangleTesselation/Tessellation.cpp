@@ -20,11 +20,11 @@
 #include "Waves.h"
 
  
-class BasicTessellation : public D3DApp
+class TriangleTessellation : public D3DApp
 {
 public:
-	BasicTessellation(HINSTANCE hInstance);
-	~BasicTessellation();
+	TriangleTessellation(HINSTANCE hInstance);
+	~TriangleTessellation();
 
 	bool Init();
 	void OnResize();
@@ -61,7 +61,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 	_CrtSetDbgFlag( _CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF );
 #endif
 
-	BasicTessellation theApp(hInstance);
+	TriangleTessellation theApp(hInstance);
 	
 	if( !theApp.Init() )
 		return 0;
@@ -69,7 +69,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 	return theApp.Run();
 }
 
-BasicTessellation::BasicTessellation(HINSTANCE hInstance)
+TriangleTessellation::TriangleTessellation(HINSTANCE hInstance)
 : D3DApp(hInstance), mQuadPatchVB(0),  
   mEyePosW(0.0f, 0.0f, 0.0f), mTheta(1.3f*MathHelper::Pi), mPhi(0.2f*MathHelper::Pi), mRadius(80.0f)
 {
@@ -84,7 +84,7 @@ BasicTessellation::BasicTessellation(HINSTANCE hInstance)
 	XMStoreFloat4x4(&mProj, I);
 }
 
-BasicTessellation::~BasicTessellation()
+TriangleTessellation::~TriangleTessellation()
 {
 	md3dImmediateContext->ClearState();
 	ReleaseCOM(mQuadPatchVB);
@@ -94,7 +94,7 @@ BasicTessellation::~BasicTessellation()
 	RenderStates::DestroyAll();
 }
 
-bool BasicTessellation::Init()
+bool TriangleTessellation::Init()
 {
 	if(!D3DApp::Init())
 		return false;
@@ -109,7 +109,7 @@ bool BasicTessellation::Init()
 	return true;
 }
 
-void BasicTessellation::OnResize()
+void TriangleTessellation::OnResize()
 {
 	D3DApp::OnResize();
 
@@ -117,7 +117,7 @@ void BasicTessellation::OnResize()
 	XMStoreFloat4x4(&mProj, P);
 }
 
-void BasicTessellation::UpdateScene(float dt)
+void TriangleTessellation::UpdateScene(float dt)
 {
 	// Convert Spherical to Cartesian coordinates.
 	float x = mRadius*sinf(mPhi)*cosf(mTheta);
@@ -143,7 +143,7 @@ void BasicTessellation::UpdateScene(float dt)
 	mRadius = MathHelper::Clamp(mRadius, 5.0f, 300.0f);
 }
 
-void BasicTessellation::DrawScene()
+void TriangleTessellation::DrawScene()
 {
 	md3dImmediateContext->ClearRenderTargetView(mRenderTargetView, reinterpret_cast<const float*>(&Colors::Silver));
 	md3dImmediateContext->ClearDepthStencilView(mDepthStencilView, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
@@ -158,7 +158,7 @@ void BasicTessellation::DrawScene()
 	XMMATRIX viewProj = view*proj;
 
 	md3dImmediateContext->IASetInputLayout(InputLayouts::Pos);
-    md3dImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_4_CONTROL_POINT_PATCHLIST);
+    md3dImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
  
 	UINT stride = sizeof(Vertex::Pos);
     UINT offset = 0;
@@ -197,7 +197,7 @@ void BasicTessellation::DrawScene()
 	HR(mSwapChain->Present(0, 0));
 }
 
-void BasicTessellation::OnMouseDown(WPARAM btnState, int x, int y)
+void TriangleTessellation::OnMouseDown(WPARAM btnState, int x, int y)
 {
 	mLastMousePos.x = x;
 	mLastMousePos.y = y;
@@ -205,12 +205,12 @@ void BasicTessellation::OnMouseDown(WPARAM btnState, int x, int y)
 	SetCapture(mhMainWnd);
 }
 
-void BasicTessellation::OnMouseUp(WPARAM btnState, int x, int y)
+void TriangleTessellation::OnMouseUp(WPARAM btnState, int x, int y)
 {
 	ReleaseCapture();
 }
 
-void BasicTessellation::OnMouseMove(WPARAM btnState, int x, int y)
+void TriangleTessellation::OnMouseMove(WPARAM btnState, int x, int y)
 {
 	if( (btnState & MK_LBUTTON) != 0 )
 	{
@@ -241,7 +241,7 @@ void BasicTessellation::OnMouseMove(WPARAM btnState, int x, int y)
 	mLastMousePos.y = y;
 }
 
-void BasicTessellation::BuildQuadPatchBuffer()
+void TriangleTessellation::BuildQuadPatchBuffer()
 {
 	D3D11_BUFFER_DESC vbd;
     vbd.Usage = D3D11_USAGE_IMMUTABLE;
@@ -250,12 +250,11 @@ void BasicTessellation::BuildQuadPatchBuffer()
     vbd.CPUAccessFlags = 0;
     vbd.MiscFlags = 0;
 
-	XMFLOAT3 vertices[4] = 
+	XMFLOAT3 vertices[3] = 
 	{
 		XMFLOAT3(-10.0f, 0.0f, +10.0f),
 		XMFLOAT3(+10.0f, 0.0f, +10.0f),
 		XMFLOAT3(-10.0f, 0.0f, -10.0f),
-		XMFLOAT3(+10.0f, 0.0f, -10.0f)
 	};
 
     D3D11_SUBRESOURCE_DATA vinitData;
