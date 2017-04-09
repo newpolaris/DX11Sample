@@ -141,8 +141,6 @@ private:
 
 	std::unordered_map<std::string, ComPtr<ID3D11Buffer>> mConstantBuffers;
 
-	XMFLOAT3 mSkullTranslation = { 0.0f, 1.0f, -5.0f };
-
 	XMFLOAT3 mEyePos = { 0.0f, 0.0f, 0.0f };
 	XMMATRIX mView = XMMatrixIdentity();
 	XMMATRIX mProj = XMMatrixIdentity();
