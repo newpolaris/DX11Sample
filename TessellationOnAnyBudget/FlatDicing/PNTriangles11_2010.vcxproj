@@ -27,7 +27,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectName>PNTriangles11</ProjectName>
+    <ProjectName>Flat_Dicing_2015</ProjectName>
     <ProjectGuid>{AAF0FC07-A239-4007-9F04-4DB8413BDE63}</ProjectGuid>
     <RootNamespace>PNTriangles11</RootNamespace>
     <Keyword>Win32Proj</Keyword>
@@ -416,10 +416,15 @@
     <ClCompile Include="DXUT\Optional\SDKmisc.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="PNTriangles11.cpp" />
+    <ClCompile Include="Flat_Dicing_11.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="PNTriangles11.hlsl" />
+    <CustomBuild Include="FlatDicing.hlsl">
+      <FileType>Document</FileType>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">fxc /Fc /Od /Zi /T fx_5_0 /Fo "%(RelativeDir)%(Filename).fxo" "%(FullPath)"</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(RelativeDir)\%(Filename).fxo</Outputs>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">fxc compile for debug: %(FullPath) %(RelativeDir)%(Filename).fxo</Message>
+    </CustomBuild>
   </ItemGroup>
   <ItemGroup>
     <CLInclude Include="resource.h" />

@@ -61,6 +61,9 @@ ID3D11PixelShader*          g_pTexturedScenePS = NULL;
 struct CB_PNTRIANGLES
 {
     D3DXMATRIX f4x4World;               // World matrix for object
+    D3DXMATRIX f4x4View;                // View matrix for object
+    D3DXMATRIX f4x4WorldView;           // World view matrix
+	D3DXMATRIX f4x4Projection;
     D3DXMATRIX f4x4ViewProjection;      // View * Projection matrix
     D3DXMATRIX f4x4WorldViewProjection; // World * View * Projection matrix  
     float fLightDir[4];                 // Light direction vector
@@ -649,7 +652,7 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
     ShaderMacros[3].Definition = "1";
         
     // Main scene VS (no tessellation)
-    V_RETURN( CompileShaderFromFile( L"PNTriangles11.hlsl", "VS_RenderScene", "vs_4_0", &pBlob, NULL ) ); 
+    V_RETURN( CompileShaderFromFile( L"FlatDicing.hlsl", "VS_RenderScene", "vs_4_0", &pBlob, NULL ) ); 
     V_RETURN( pd3dDevice->CreateVertexShader( pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &g_pSceneVS ) );
     DXUT_SetDebugName( g_pSceneVS, "VS_RenderScene" );
     
@@ -666,7 +669,7 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
     DXUT_SetDebugName( g_pSceneVertexLayout, "Primary" );
 
     // Main scene VS (with tessellation)
-    V_RETURN( CompileShaderFromFile( L"PNTriangles11.hlsl", "VS_RenderSceneWithTessellation", "vs_4_0", &pBlob, NULL ) ); 
+    V_RETURN( CompileShaderFromFile( L"FlatDicing.hlsl", "VS_RenderSceneWithTessellation", "vs_4_0", &pBlob, NULL ) ); 
     V_RETURN( pd3dDevice->CreateVertexShader( pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &g_pSceneWithTessellationVS ) );
     SAFE_RELEASE( pBlob );
     DXUT_SetDebugName( g_pSceneWithTessellationVS, "VS_RenderSceneWithTessellation" );
@@ -675,19 +678,19 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
     V_RETURN( CreateHullShader() );
             
     // PNTriangles DS
-    V_RETURN( CompileShaderFromFile( L"PNTriangles11.hlsl", "DS_PNTriangles", "ds_5_0", &pBlob, NULL ) ); 
+    V_RETURN( CompileShaderFromFile( L"FlatDicing.hlsl", "DS_PNTriangles", "ds_5_0", &pBlob, NULL ) ); 
     V_RETURN( pd3dDevice->CreateDomainShader( pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &g_pPNTrianglesDS ) );
     SAFE_RELEASE( pBlob );
     DXUT_SetDebugName( g_pPNTrianglesDS, "DS_PNTriangles" );
 
     // Main scene PS (no textures)
-    V_RETURN( CompileShaderFromFile( L"PNTriangles11.hlsl", "PS_RenderScene", "ps_4_0", &pBlob, NULL ) ); 
+    V_RETURN( CompileShaderFromFile( L"FlatDicing.hlsl", "PS_RenderScene", "ps_4_0", &pBlob, NULL ) ); 
     V_RETURN( pd3dDevice->CreatePixelShader( pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &g_pScenePS ) );
     SAFE_RELEASE( pBlob );
     DXUT_SetDebugName( g_pScenePS, "PS_RenderScene" );
     
     // Main scene PS (textured)
-    V_RETURN( CompileShaderFromFile( L"PNTriangles11.hlsl", "PS_RenderSceneTextured", "ps_4_0", &pBlob, NULL ) ); 
+    V_RETURN( CompileShaderFromFile( L"FlatDicing.hlsl", "PS_RenderSceneTextured", "ps_4_0", &pBlob, NULL ) ); 
     V_RETURN( pd3dDevice->CreatePixelShader( pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &g_pTexturedScenePS ) );
     SAFE_RELEASE( pBlob );
     DXUT_SetDebugName( g_pTexturedScenePS, "PS_RenderSceneTextured" );
@@ -931,11 +934,13 @@ void CALLBACK OnD3D11FrameRender( ID3D11Device* pd3dDevice, ID3D11DeviceContext*
     D3DXMATRIXA16 mWorld;
     D3DXMATRIXA16 mView;
     D3DXMATRIXA16 mProj;
+	D3DXMATRIXA16 mWorldView;
     D3DXMATRIXA16 mWorldViewProjection;
     D3DXMATRIXA16 mViewProjection;
     mWorld =  g_m4x4MeshMatrix[g_eMeshType] * *g_Camera[g_eMeshType].GetWorldMatrix();
     mView = *g_Camera[g_eMeshType].GetViewMatrix();
     mProj = *g_Camera[g_eMeshType].GetProjMatrix();
+	mWorldView = mWorld * mView;
     mWorldViewProjection = mWorld * mView * mProj;
     mViewProjection = mView * mProj;
     
@@ -956,6 +961,9 @@ void CALLBACK OnD3D11FrameRender( ID3D11Device* pd3dDevice, ID3D11DeviceContext*
     pd3dImmediateContext->Map( g_pcbPNTriangles, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource );
     CB_PNTRIANGLES* pPNTrianglesCB = ( CB_PNTRIANGLES* )MappedResource.pData;
     D3DXMatrixTranspose( &pPNTrianglesCB->f4x4World, &mWorld );
+    D3DXMatrixTranspose( &pPNTrianglesCB->f4x4View, &mView );
+    D3DXMatrixTranspose( &pPNTrianglesCB->f4x4WorldView, &mWorldView );
+    D3DXMatrixTranspose( &pPNTrianglesCB->f4x4Projection, &mProj );
     D3DXMatrixTranspose( &pPNTrianglesCB->f4x4ViewProjection, &mViewProjection );
     D3DXMatrixTranspose( &pPNTrianglesCB->f4x4WorldViewProjection, &mWorldViewProjection );
     pPNTrianglesCB->fLightDir[0] = v3LightDir.x; 
@@ -1541,7 +1549,7 @@ HRESULT CreateHullShader()
     }
 
     // Create the shader
-    hr = CompileShaderFromFile( L"PNTriangles11.hlsl", "HS_PNTriangles", "hs_5_0", &pBlob, ShaderMacros ); 
+    hr = CompileShaderFromFile( L"FlatDicing.hlsl", "HS_FlatTriangles", "hs_5_0", &pBlob, ShaderMacros ); 
     if ( FAILED(hr) )
         return hr;
 
