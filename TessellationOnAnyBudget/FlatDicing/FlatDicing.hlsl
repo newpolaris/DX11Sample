@@ -122,6 +122,77 @@ struct PS_RenderOutput
     float4 f4Color      : SV_Target0;
 };
 
+float3 ComputeCP(float3 posA, float3 posB, float3 normA) {
+	return (2 * posA + posB - (dot((posB - posA), normA) * normA)) /
+		3.0f;
+}
+// Expects that projMatrix is the canonical projection matrix. Will be
+// faster than performing a full 4x4 matrix multiply by an eye space
+// position in that case.
+float4 ApplyProjection(float4x4 projMatrix, float3 eyePosition)
+{
+	float4 clipPos;
+#if FAST_PROJECTION_XFORM
+	// In the canonical projection matrix, all other elements are zero
+	// and eyePosition[3] == 1.
+	clipPos[0] = projMatrix[0][0] * eyePosition[0];
+	clipPos[1] = projMatrix[1][1] * eyePosition[1];
+	clipPos[2] = projMatrix[2][2] * eyePosition[2] + projMatrix[3][2];
+	clipPos[3] = eyePosition[2];
+#else
+	clipPos = mul(float4(eyePosition, 1), projMatrix );
+#endif
+
+	return clipPos;
+}
+
+// This will project the input eye-space position by the specified
+// matrix, then compute an incorrect (but properly scaled) window
+// position. Finally, we divide by the tessellation factor,
+// which is approximately how many pixels we want per-triangle.
+float2 ProjectAndScale(float4x4 projMatrix, float3 inPos)
+{
+	float4 posClip = ApplyProjection(projMatrix, inPos);
+	float2 posNDC = posClip.xy / posClip.w;
+
+	return posNDC * g_f4ScreenParams.xy / max(1.f, g_f4GUIParams1.w);
+}
+
+float IsClipped(float4 clipPos)
+{
+	// Test whether the position is entirely inside the view frustum.
+	return (-clipPos.w <= clipPos.x && clipPos.x <= clipPos.w
+		&& -clipPos.w <= clipPos.y && clipPos.y <= clipPos.w
+		&& -clipPos.w <= clipPos.z && clipPos.z <= clipPos.w)
+		? 0.0f
+		: 1.0f;
+}
+// Compute whether all three control points along the edge are outside
+// of the view frustum. 
+float ComputeClipping(float4x4 projMatrix, float3 cpA)
+{
+	// Compute the projected position for each position, then check to
+	// see whether they are clipped.
+	float4 projPosA = ApplyProjection(projMatrix, cpA);
+	return IsClipped(projPosA);
+}
+
+// Compute the edge LOD for the four specifed control points, which
+// should be the control points along one edge of the triangle. This is
+// significantly more accurate than just using the end points of the
+// triangle because it takes curvature into account. Note that will
+// overestimate the number of triangles needed, but typically not by
+// too much. It also ensures that we never cull a triangle by ensuring
+// that the LOD is at least 1.
+float ComputeEdgeLOD(float4x4 projMatrix,
+	float3 cpA, float3 cpB)
+{
+	float2 projCpA = ProjectAndScale(projMatrix, cpA).xy,
+		projCpB = ProjectAndScale(projMatrix, cpB).xy;
+
+	float edgeLOD = distance(projCpA, projCpB);
+	return max(edgeLOD, 1);
+}
 
 //--------------------------------------------------------------------------------------
 // This vertex shader computes standard transform and lighting, with no tessellation stages following
@@ -202,14 +273,26 @@ HS_ControlPointOutput HS_FlatTriangles(
 	uint uCPID : SV_OutputControlPointID )
 {
     HS_ControlPointOutput O = (HS_ControlPointOutput)0;
+	const uint NextCPID = uCPID < 2 ? uCPID + 1 : 0;
 	
     // Just pass through inputs = fast pass through mode triggered
     O.f3Position = I[uCPID].f3Position;
     O.f3Normal = I[uCPID].f3Normal;
     O.f2TexCoord = I[uCPID].f2TexCoord;
 
-	O.fClipped = 0.0f;
+#ifdef USE_SCREEN_SPACE_ADAPTIVE_TESSELLATION
+	O.fOppositeEdgeLOD = ComputeEdgeLOD(g_f4x4Projection,
+		O.f3Position,
+		I[NextCPID].f3Position);
+#else
 	O.fOppositeEdgeLOD = g_f4TessFactors.x;
+#endif
+
+#ifdef USE_VIEW_FRUSTUM_CULLING
+	O.fClipped = ComputeClipping( g_f4x4Projection, O.f3Position );
+#else
+	O.fClipped = 0.0f;
+#endif
     
     return O;
 }

@@ -483,13 +483,13 @@ void CALLBACK OnGUIEvent( UINT nEvent, int nControlID, CDXUTControl* pControl, v
 
         case IDC_CHECKBOX_TESSELLATION:
             bEnable = g_SampleUI.GetCheckBox( IDC_CHECKBOX_TESSELLATION )->GetChecked();
+            g_SampleUI.GetCheckBox( IDC_CHECKBOX_SCREEN_SPACE_ADAPTIVE )->SetEnabled( bEnable );
+            g_SampleUI.GetCheckBox( IDC_CHECKBOX_VIEW_FRUSTUM_CULL )->SetEnabled( bEnable );
             g_SampleUI.GetCheckBox( IDC_CHECKBOX_DISTANCE_ADAPTIVE )->SetEnabled( bEnable );
             g_SampleUI.GetCheckBox( IDC_CHECKBOX_ORIENTATION_ADAPTIVE )->SetEnabled( bEnable );
             g_SampleUI.GetStatic( IDC_STATIC_TESS_FACTOR )->SetEnabled( bEnable );
             g_SampleUI.GetSlider( IDC_SLIDER_TESS_FACTOR )->SetEnabled( bEnable );
             g_SampleUI.GetCheckBox( IDC_CHECKBOX_BACK_FACE_CULL )->SetEnabled( bEnable );
-            g_SampleUI.GetCheckBox( IDC_CHECKBOX_VIEW_FRUSTUM_CULL )->SetEnabled( bEnable );
-            g_SampleUI.GetCheckBox( IDC_CHECKBOX_SCREEN_SPACE_ADAPTIVE )->SetEnabled( bEnable );
             g_SampleUI.GetStatic( IDC_STATIC_BACK_FACE_CULL_EPSILON )->SetEnabled( bEnable );
             g_SampleUI.GetSlider( IDC_SLIDER_BACK_FACE_CULL_EPSILON )->SetEnabled( bEnable );
             g_SampleUI.GetStatic( IDC_STATIC_SILHOUTTE_EPSILON )->SetEnabled( bEnable );
@@ -1174,6 +1174,7 @@ HRESULT CompileShaderFromFile( WCHAR* szFileName, LPCSTR szEntryPoint,
     // the shaders to be optimized and to run exactly the way they will run in 
     // the release configuration of this program.
     dwShaderFlags |= D3DCOMPILE_DEBUG;
+	dwShaderFlags |= D3DCOMPILE_SKIP_OPTIMIZATION;
 #endif
 
     ID3DBlob* pErrorBlob;
