@@ -308,17 +308,17 @@ DS_Output DS_PNTriangles( HS_ConstantOutput HSConstantData,
 {
     DS_Output O = (DS_Output)0;
 
-	float fU = f3BarycentricCoords[0];
-	float fV = f3BarycentricCoords[1];
-	float fW = f3BarycentricCoords[2];
-	float3 f3Position = I[0].f3Position * fW + I[1].f3Position * fU + I[2].f3Position * fV;
-    float3 f3Normal = I[0].f3Normal * fW + I[1].f3Normal * fU + I[2].f3Normal * fV;
+	float fU = f3BarycentricCoords.x;
+	float fV = f3BarycentricCoords.y;
+	float fW = f3BarycentricCoords.Z;
+	float3 f3Position = I[0].f3Position * fU + I[1].f3Position * fV + I[2].f3Position * fW;
+    float3 f3Normal = I[0].f3Normal * fU + I[1].f3Normal * fV + I[2].f3Normal * fW;
 
     // Normalize the interpolated normal    
     f3Normal = normalize( f3Normal );
 
     // Linearly interpolate the texture coords
-    O.f2TexCoord = I[0].f2TexCoord * fW + I[1].f2TexCoord * fU + I[2].f2TexCoord * fV;
+    O.f2TexCoord = I[0].f2TexCoord * fU + I[1].f2TexCoord * fV + I[2].f2TexCoord * fW;
 
     // Calc diffuse color    
     O.f4Diffuse.rgb = g_f4MaterialDiffuseColor * g_f4LightDiffuse * max( 0, dot( f3Normal, g_f4LightDir.xyz ) ) + g_f4MaterialAmbientColor;  

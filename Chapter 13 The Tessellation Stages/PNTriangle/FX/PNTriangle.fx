@@ -195,6 +195,11 @@ DomainOut DS(in ConstantOut cout,
 {
     DomainOut dout;
 
+	// UVW match is non standard form. It due to in ConstantHS
+	// float3 f3B003 = patch[0].Pos - original (Point0)(B300)(UVW:100)
+	// float3 f3B030 = patch[1].Pos - original (Point1)(B030)(UVW:010)
+	// float3 f3B300 = patch[2].Pos - original (Point1)(B003)(UVW:010)
+
     // The barycentric coordinates
     float fU = f3BarycentricCoords.x;
     float fV = f3BarycentricCoords.y;
