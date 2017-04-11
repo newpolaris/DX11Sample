@@ -1550,7 +1550,7 @@ HRESULT CreateHullShader()
     }
 
     // Create the shader
-    hr = CompileShaderFromFile( L"PNTriangle.hlsl", "HS_FlatTriangles", "hs_5_0", &pBlob, ShaderMacros ); 
+    hr = CompileShaderFromFile( L"PNTriangle.hlsl", "HS_PNTriangles", "hs_5_0", &pBlob, ShaderMacros ); 
     if ( FAILED(hr) )
         return hr;
 
