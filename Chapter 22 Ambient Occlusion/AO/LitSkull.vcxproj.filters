@@ -82,9 +82,6 @@
     <ClInclude Include="..\..\Common\Waves.h">
       <Filter>Common</Filter>
     </ClInclude>
-    <ClInclude Include="Effects.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\Common\ShaderFactoryDX11.h">
       <Filter>Common</Filter>
     </ClInclude>
@@ -109,9 +106,6 @@
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="FX\Basic.fx">
-      <Filter>FX</Filter>
-    </FxCompile>
-    <FxCompile Include="FX\Screen.fx">
       <Filter>FX</Filter>
     </FxCompile>
   </ItemGroup>
