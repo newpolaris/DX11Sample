@@ -71,6 +71,7 @@ struct VertexIn
 {
 	float3 PosL    : POSITION;
 	float3 NormalL : NORMAL;
+	float  Ambient : AMBIENT;
 #ifdef TEXTURE
 	float2 TexC    : TEXCOORD;
 #endif
@@ -81,6 +82,7 @@ struct VertexOut
 	float4 PosH    : SV_POSITION;
 	float3 PosW    : POSITION;
 	float3 NormalW : NORMAL;
+	float  Ambient : AMBIENT;
 #ifdef TEXTURE
 	float2 TexC    : TEXCOORD;
 #endif
@@ -103,6 +105,7 @@ VertexOut VS(VertexIn vin)
 	float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform);
 	vout.TexC = mul(texC, gMatTransform).xy;
 #endif
+	vout.Ambient = vin.Ambient;
 
 	return vout;
 }
@@ -123,7 +126,7 @@ float4 PS(VertexOut pin) : SV_Target
 	// Start with a sum of zero. 
 
 	// Indirect lighting.
-	float4 ambient = gAmbientLight*diffuseAlbedo;
+	float4 ambient = pin.Ambient * gAmbientLight*diffuseAlbedo;
 
 	const float shininess = 1.0f - gRoughness;
 

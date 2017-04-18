@@ -94,8 +94,10 @@
     <ClCompile Include="..\..\Common\MathHelper.cpp" />
     <ClCompile Include="..\..\Common\ShaderFactoryDX11.cpp" />
     <ClCompile Include="..\..\Common\Waves.cpp" />
+    <ClCompile Include="..\..\Common\xnacollision.cpp" />
     <ClCompile Include="FrameResource.cpp" />
     <ClCompile Include="AOApp.cpp" />
+    <ClCompile Include="Octree.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Common\d3dApp.h" />
@@ -111,8 +113,10 @@
     <ClInclude Include="..\..\Common\ShaderFactoryDX11.h" />
     <ClInclude Include="..\..\Common\UploadBuffer.h" />
     <ClInclude Include="..\..\Common\Waves.h" />
+    <ClInclude Include="..\..\Common\xnacollision.h" />
     <ClInclude Include="ConstantBuffer.h" />
     <ClInclude Include="FrameResource.h" />
+    <ClInclude Include="Octree.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="FX\Basic.fx">

@@ -1,5 +1,5 @@
 //***************************************************************************************
-// LitSkullDemo.cpp by Frank Luna (C) 2011 All Rights Reserved.
+// AOApp.cpp by Frank Luna (C) 2011 All Rights Reserved.
 //
 // Controls:
 //		Hold the left mouse button down and move the mouse to rotate.
@@ -16,6 +16,7 @@
 #include "PipelineStateObject.h"
 #include "ShaderFactoryDX11.h"
 #include "MeshGeometry.h"
+#include "Octree.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "D3DCompiler.lib")
@@ -75,6 +76,79 @@ enum ShaderType
 	ComputeShader,
 };
 
+// Self AO 이상을 원한다면, interaction이 있는 모든 개체를 넣어서
+// 수행할 수 밖에 없음. 리얼타임으로 돌릴 수 없ㄷ
+template <typename T>
+void BuildVertexAmbientOcclusion(
+	std::vector<T>& vertices,
+	const std::vector<UINT>& indices)
+{
+	UINT vcount = vertices.size();
+	UINT tcount = indices.size()/3;
+
+	std::vector<XMFLOAT3> positions(vcount);
+	for (UINT i = 0; i < vcount; ++i) 
+		positions[i] = vertices[i].Pos;
+
+	Octree octree;
+	octree.Build(positions, indices);
+	
+	// For each vertex, count how many triangles contain the vertex.
+	std::vector<int> vertexSharedCount(vcount);
+	for(UINT i = 0; i < tcount; ++i)
+	{
+		UINT i0 = indices[i*3+0];
+		UINT i1 = indices[i*3+1];
+		UINT i2 = indices[i*3+2];
+
+		XMVECTOR v0 = XMLoadFloat3(&vertices[i0].Pos);
+		XMVECTOR v1 = XMLoadFloat3(&vertices[i1].Pos);
+		XMVECTOR v2 = XMLoadFloat3(&vertices[i2].Pos);
+
+		XMVECTOR edge0 = v1 - v0;
+		XMVECTOR edge1 = v2 - v0;
+
+		XMVECTOR normal = XMVector3Normalize(XMVector3Cross(edge0, edge1));
+
+		XMVECTOR centroid = (v0 + v1 + v2)/3.0f;
+
+		// Offset to avoid self intersection.
+		centroid += 0.001f*normal;
+
+		const int NumSampleRays = 32;
+		float numUnoccluded = 0;
+		for(int j = 0; j < NumSampleRays; ++j)
+		{
+			XMVECTOR randomDir = MathHelper::RandHemisphereUnitVec3(normal);
+
+			// TODO: Technically we should not count intersections that are far 
+			// away as occluding the triangle, but this is OK for demo.
+			if( !octree.RayOctreeIntersect(centroid, randomDir) )
+			{
+				numUnoccluded++;
+			}
+		}
+		
+		float ambientAccess = numUnoccluded / NumSampleRays;
+
+		// Average with vertices that share this face.
+		vertices[i0].Ambient += ambientAccess;
+		vertices[i1].Ambient += ambientAccess;
+		vertices[i2].Ambient += ambientAccess;
+
+		vertexSharedCount[i0]++;
+		vertexSharedCount[i1]++;
+		vertexSharedCount[i2]++;
+	}
+
+	// Finish average by dividing by the number of samples we added.
+	for(UINT i = 0; i < vcount; ++i)
+	{
+		vertices[i].Ambient /= vertexSharedCount[i];
+	}
+}
+
+
 class AOApp : public D3DApp 
 {
 public:
@@ -102,7 +176,6 @@ private:
 	void BuildGeometry();
 	void BuildShapeGeometryBuffers();
 	void BuildSkullGeometryBuffers();
-	void BuildScreenQuadGeometryBuffers();
 	void BuildRenderItems();
 	void AddRenderItems(
 		RenderLayer layer,
@@ -335,7 +408,8 @@ void AOApp::BuildVertexLayout()
 	std::vector<D3D11_INPUT_ELEMENT_DESC> ILTex = {
 		{"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
 		{"NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
-		{"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0}
+		{"AMBIENT",  0, DXGI_FORMAT_R32_FLOAT, 0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0},
+		{"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 28, D3D11_INPUT_PER_VERTEX_DATA, 0},
 	};
 
 	ComPtr<ID3D11InputLayout> pLayoutTex;
@@ -351,6 +425,7 @@ void AOApp::BuildVertexLayout()
 	std::vector<D3D11_INPUT_ELEMENT_DESC> IL = {
 		{"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
 		{"NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
+		{"AMBIENT",  0, DXGI_FORMAT_R32_FLOAT, 0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0}
 	};
 
 	ComPtr<ID3D11InputLayout> pLayout;
@@ -559,7 +634,6 @@ void AOApp::BuildGeometry()
 {
 	BuildShapeGeometryBuffers();
 	BuildSkullGeometryBuffers();
-	BuildScreenQuadGeometryBuffers();
 }
 
 void AOApp::BuildShapeGeometryBuffers()
@@ -629,7 +703,7 @@ void AOApp::BuildShapeGeometryBuffers()
 	// Extract the vertex elements we are interested in and pack the
 	// vertices of all the meshes into one vertex buffer.
 	//
-	std::vector<VertexTex> vertices(totalVertexCount);
+	std::vector<VertexTexAO> vertices(totalVertexCount);
 
 	UINT k = 0;
 	for(size_t i = 0; i < box.Vertices.size(); ++i, ++k)
@@ -637,6 +711,7 @@ void AOApp::BuildShapeGeometryBuffers()
 		vertices[k].Pos    = box.Vertices[i].Position;
 		vertices[k].Normal = box.Vertices[i].Normal;
 		vertices[k].Tex    = box.Vertices[i].TexC;
+		vertices[k].Ambient = 1.0f;
 	}
 
 	for(size_t i = 0; i < grid.Vertices.size(); ++i, ++k)
@@ -644,6 +719,7 @@ void AOApp::BuildShapeGeometryBuffers()
 		vertices[k].Pos    = grid.Vertices[i].Position;
 		vertices[k].Normal = grid.Vertices[i].Normal;
 		vertices[k].Tex    = grid.Vertices[i].TexC;
+		vertices[k].Ambient = 1.0f;
 	}
 
 	for(size_t i = 0; i < sphere.Vertices.size(); ++i, ++k)
@@ -651,6 +727,7 @@ void AOApp::BuildShapeGeometryBuffers()
 		vertices[k].Pos    = sphere.Vertices[i].Position;
 		vertices[k].Normal = sphere.Vertices[i].Normal;
 		vertices[k].Tex    = sphere.Vertices[i].TexC;
+		vertices[k].Ambient = 1.0f;
 	}
 
 	for(size_t i = 0; i < cylinder.Vertices.size(); ++i, ++k)
@@ -658,6 +735,7 @@ void AOApp::BuildShapeGeometryBuffers()
 		vertices[k].Pos    = cylinder.Vertices[i].Position;
 		vertices[k].Normal = cylinder.Vertices[i].Normal;
 		vertices[k].Tex    = cylinder.Vertices[i].TexC;
+		vertices[k].Ambient = 1.0f;
 	}
 
 	//
@@ -669,7 +747,7 @@ void AOApp::BuildShapeGeometryBuffers()
 	indices.insert(indices.end(), sphere.Indices.begin(), sphere.Indices.end());
 	indices.insert(indices.end(), cylinder.Indices.begin(), cylinder.Indices.end());
 
-	const UINT vbByteSize = sizeof(VertexTex)*vertices.size();
+	const UINT vbByteSize = sizeof(VertexTexAO)*vertices.size();
 	const UINT ibByteSize = sizeof(UINT)*indices.size();
 
 	auto geo = std::make_unique<MeshGeometry>();
@@ -679,7 +757,7 @@ void AOApp::BuildShapeGeometryBuffers()
 	geo->IndexBufferGPU = d3dHelper::CreateIndexBuffer(
 		md3dDevice, indices.data(), ibByteSize);
 
-	geo->VertexByteStride = sizeof(VertexTex);
+	geo->VertexByteStride = sizeof(VertexTexAO);
 	geo->VertexBufferByteSize = vbByteSize;
 	geo->IndexFormat = DXGI_FORMAT_R32_UINT;
 	geo->IndexBufferByteSize = ibByteSize;
@@ -710,11 +788,12 @@ void AOApp::BuildSkullGeometryBuffers()
 	fin >> ignore >> tcount;
 	fin >> ignore >> ignore >> ignore >> ignore;
 	
-	std::vector<Vertex> vertices(vcount);
+	std::vector<VertexAO> vertices(vcount);
 	for(UINT i = 0; i < vcount; ++i)
 	{
 		fin >> vertices[i].Pos.x >> vertices[i].Pos.y >> vertices[i].Pos.z;
 		fin >> vertices[i].Normal.x >> vertices[i].Normal.y >> vertices[i].Normal.z;
+		vertices[i].Ambient = 1.0f;
 	}
 
 	fin >> ignore;
@@ -730,7 +809,9 @@ void AOApp::BuildSkullGeometryBuffers()
 
 	fin.close();
 
-	const UINT vbByteSize = sizeof(Vertex)*vertices.size();
+	BuildVertexAmbientOcclusion(vertices, indices);
+
+	const UINT vbByteSize = sizeof(VertexAO)*vertices.size();
 	const UINT ibByteSize = sizeof(UINT)*indices.size();
 
 	auto geo = std::make_unique<MeshGeometry>();
@@ -740,7 +821,7 @@ void AOApp::BuildSkullGeometryBuffers()
 	geo->IndexBufferGPU = d3dHelper::CreateIndexBuffer(
 		md3dDevice, indices.data(), ibByteSize);
 
-	geo->VertexByteStride = sizeof(Vertex);
+	geo->VertexByteStride = sizeof(VertexAO);
 	geo->VertexBufferByteSize = vbByteSize;
 	geo->IndexFormat = DXGI_FORMAT_R32_UINT;
 	geo->IndexBufferByteSize = ibByteSize;
@@ -751,51 +832,6 @@ void AOApp::BuildSkullGeometryBuffers()
 	skull.BaseVertexLocation = 0;
 
 	geo->DrawArgs["skull"] = skull;
-	mGeometries[geo->Name] = std::move(geo);
-}
-
-void AOApp::BuildScreenQuadGeometryBuffers()
-{
-	GeometryGenerator::MeshData quad;
-
-	GeometryGenerator geoGen;
-	geoGen.CreateFullscreenQuad(quad);
-
-	//
-	// Extract the vertex elements we are interested in and pack the
-	// vertices of all the meshes into one vertex buffer.
-	//
-
-	std::vector<VertexTex> vertices(quad.Vertices.size());
-
-	for(UINT i = 0; i < quad.Vertices.size(); ++i)
-	{
-		vertices[i].Pos    = quad.Vertices[i].Position;
-		vertices[i].Normal = quad.Vertices[i].Normal;
-		vertices[i].Tex    = quad.Vertices[i].TexC;
-	}
-
-	UINT vbByteSize = (UINT) vertices.size() * sizeof(VertexTex);
-	UINT ibByteSize = (UINT) quad.Indices.size() * sizeof(UINT);
-
-	auto geo = std::make_unique<MeshGeometry>();
-	geo->Name = "screen";
-	geo->VertexBufferGPU = d3dHelper::CreateVertexBuffer(
-		md3dDevice, vertices.data(), vbByteSize);
-	geo->IndexBufferGPU = d3dHelper::CreateIndexBuffer(
-		md3dDevice, quad.Indices.data(), ibByteSize);
-
-	geo->VertexByteStride = sizeof(VertexTex);
-	geo->VertexBufferByteSize = vbByteSize;
-	geo->IndexFormat = DXGI_FORMAT_R32_UINT;
-	geo->IndexBufferByteSize = ibByteSize;
-
-	SubmeshGeometry screenmesh;
-	screenmesh.IndexCount = (UINT)quad.Indices.size();
-	screenmesh.StartIndexLocation = 0;
-	screenmesh.BaseVertexLocation = 0;
-	geo->DrawArgs["screen"] = screenmesh;
-
 	mGeometries[geo->Name] = std::move(geo);
 }
 

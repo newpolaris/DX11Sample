@@ -3,21 +3,23 @@
 #include "../../Common/d3dUtil.h"
 #include "../../Common/ConstantBuffer.h"
 
-struct Vertex
+struct VertexAO
 {
 	XMFLOAT3 Pos;
 	XMFLOAT3 Normal;
+	FLOAT Ambient;
 };
 
-struct VertexTex
+struct VertexTexAO
 {
-	VertexTex() = default;
-	VertexTex(float x, float y, float z, float nx, float ny, float nz, float u, float v) :
+	VertexTexAO() = default;
+	VertexTexAO(float x, float y, float z, float nx, float ny, float nz, float u, float v) :
 		Pos(x, y, z),
 		Normal(nx, ny, nz),
 		Tex(u, v) {}
 	XMFLOAT3 Pos;
 	XMFLOAT3 Normal;
+	FLOAT Ambient;
 	XMFLOAT2 Tex;
 };
 
