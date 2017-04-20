@@ -8,6 +8,8 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 //--------------------------------------------------------------------------------------
 
+#define QUADRATIC_NORMAL
+
 //--------------------------------------------------------------------------------------
 // Constant buffer
 //--------------------------------------------------------------------------------------
@@ -79,10 +81,12 @@ struct HS_ConstantOutput
     // Geometry cubic generated control points
 	float3 f3ViewB111       : CENTER;
     
+#ifdef QUADRATIC_NORMAL
     // Normal quadratic generated control points
     float3 f3N110    : NORMAL3;      
     float3 f3N011    : NORMAL4;
     float3 f3N101    : NORMAL5;
+#endif
 };
 
 struct HS_ControlPointOutput
@@ -90,8 +94,8 @@ struct HS_ControlPointOutput
     float3 f3Position[3]   : POSITION;
     float3 f3Normal        : NORMAL;
     float2 f2TexCoord      : TEXCOORD;
-	float fOppositeEdgeLOD : LODDATA;
-	float fClipped         : CLIPPED; // 1.0 means clipped, 0.0 means unclipped
+    float fOppositeEdgeLOD : LODDATA;
+    float fClipped         : CLIPPED; // 1.0 means clipped, 0.0 means unclipped
 };
 
 struct DS_Output
@@ -224,7 +228,7 @@ HS_RenderSceneInput VS_RenderSceneWithTessellation( VS_RenderSceneInput I )
     HS_RenderSceneInput O;
     
     // Pass through world space position
-    O.f3Position = mul( float4(I.f3Position, 1.f), g_f4x4WorldView ).xyz;
+    O.f3Position = mul( float4(I.f3Position, 1.f), g_f4x4World ).xyz;
     
     // Pass through normalized world space normal    
     O.f3Normal = normalize( mul( I.f3Normal, (float3x3)g_f4x4World ) );
@@ -244,7 +248,8 @@ HS_ConstantOutput HS_ConstantPN( const OutputPatch<HS_ControlPointOutput, 3> I )
 {
     HS_ConstantOutput O = (HS_ConstantOutput)0;
 
-	float3 f3B300 = I[0].f3Position[0],
+	float3 
+		f3B300 = I[0].f3Position[0],
 		f3B210 = I[0].f3Position[1],
 		f3B120 = I[0].f3Position[2],
 		f3B030 = I[1].f3Position[0],
@@ -264,8 +269,24 @@ HS_ConstantOutput HS_ConstantPN( const OutputPatch<HS_ControlPointOutput, 3> I )
 	float3 f3E = (f3B210 + f3B120 + f3B021 + f3B012 + f3B102 + f3B201) / 6.0f;
 	float3 f3V = (f3B003 + f3B030 + f3B300) / 3.0f;
 	O.f3ViewB111 = f3E + ((f3E - f3V) / 2.0f);
+
+#ifdef QUADRATIC_NORMAL
+	// And Normals
+	float3 f3N200 = I[0].f3Normal;
+	float3 f3N020 = I[1].f3Normal;
+	float3 f3N002 = I[2].f3Normal;
+
+	float fV12 = 2.0f * dot(f3B030 - f3B300, f3N200 + f3N020) / dot(f3B030 - f3B300, f3B030 - f3B300);
+	O.f3N110 = normalize(f3N200 + f3N020 - fV12 * (f3B030 - f3B300));
+	float fV23 = 2.0f * dot(f3B003 - f3B030, f3N020 + f3N002) / dot(f3B003 - f3B030, f3B003 - f3B030);
+	O.f3N011 = normalize(f3N020 + f3N002 - fV23 * (f3B003 - f3B030));
+	float fV31 = 2.0f * dot(f3B300 - f3B003, f3N200 + f3N002) / dot(f3B300 - f3B003, f3B300 - f3B003);
+	O.f3N101 = normalize(f3N002 + f3N200 - fV31 * (f3B300 - f3B003));
+#endif
+
+
 #ifdef USE_VIEW_FRUSTUM_CULLING
-	float fB111Clipped = IsClipped(ApplyProjection(g_f4x4Projection, O.f3ViewB111));
+	float fB111Clipped = IsClipped(ApplyProjection(g_f4x4ViewProjection, O.f3ViewB111));
 #else
 	float fB111Clipped = 0.f;
 #endif
@@ -289,19 +310,18 @@ HS_ControlPointOutput HS_PNTriangles(
 	uint uCPID : SV_OutputControlPointID )
 {
     HS_ControlPointOutput O = (HS_ControlPointOutput)0;
-	const uint NextCPID = uCPID < 2 ? uCPID + 1 : 0;
+    const uint NextCPID = uCPID < 2 ? uCPID + 1 : 0;
 	
-	// Compute all three control point
+    // Compute all three control point
     O.f3Position[0] = I[uCPID].f3Position;
-	O.f3Position[1] = ComputeCP(I[uCPID].f3Position, I[NextCPID].f3Position, I[uCPID].f3Normal);
-	O.f3Position[2] = ComputeCP(I[NextCPID].f3Position, I[uCPID].f3Position, I[NextCPID].f3Normal);
-
+    O.f3Position[1] = ComputeCP(I[uCPID].f3Position, I[NextCPID].f3Position, I[uCPID].f3Normal);
+    O.f3Position[2] = ComputeCP(I[NextCPID].f3Position, I[uCPID].f3Position, I[NextCPID].f3Normal);
     O.f3Normal = I[uCPID].f3Normal;
     O.f2TexCoord = I[uCPID].f2TexCoord;
 
 #ifdef USE_SCREEN_SPACE_ADAPTIVE_TESSELLATION
 	O.fOppositeEdgeLOD = ComputeEdgeLOD(
-		g_f4x4Projection, O.f3Position[0],
+		g_f4x4ViewProjection, O.f3Position[0],
 		O.f3Position[1], O.f3Position[2],
 		I[NextCPID].f3Position
 	);
@@ -329,20 +349,21 @@ DS_Output DS_PNTriangles( HS_ConstantOutput HSConstantData,
 {
     DS_Output O = (DS_Output)0;
 
-	float fU = f3BarycentricCoords[0];
-	float fV = f3BarycentricCoords[1];
-	float fW = f3BarycentricCoords[2];
+    float fU = f3BarycentricCoords[0];
+    float fV = f3BarycentricCoords[1];
+    float fW = f3BarycentricCoords[2];
 
-	// Precompute squares and squares * 3
-	float fUU = fU * fU;
-	float fVV = fV * fV;
-	float fWW = fW * fW;
-	float fUU3 = fUU * 3.0f;
-	float fVV3 = fVV * 3.0f;
-	float fWW3 = fWW * 3.0f;
+    // Precompute squares and squares * 3 
+    float fUU = fU * fU;
+    float fVV = fV * fV;
+    float fWW = fW * fW;
+    float fUU3 = fUU * 3.0f;
+    float fVV3 = fVV * 3.0f;
+    float fWW3 = fWW * 3.0f;
 	// Although complicated, this is the canonical implementation of
 	// PN, as per Vlachos, et al.
-	float3 f3Position = I[0].f3Position[0] * fUU * fU +
+	float3 f3Position = 
+		I[0].f3Position[0] * fUU * fU +
 		I[1].f3Position[0] * fVV * fV +
 		I[2].f3Position[0] * fWW * fW +
 		I[0].f3Position[1] * fUU3 * fV +
@@ -359,7 +380,18 @@ DS_Output DS_PNTriangles( HS_ConstantOutput HSConstantData,
 	// not perpendicular to the triangle surface. Moreover, quadtratic
 	// normals in the face of normal maps would actually also require
 	// per-pixel quadratic tangents and bitangents.
+#ifdef QUADRATIC_NORMAL
+    // Compute normal from quadratic control points and barycentric coords
+    float3 f3Normal =   I[0].f3Normal * fUU +
+                        I[1].f3Normal * fVV +
+                        I[2].f3Normal * fWW +
+                        HSConstantData.f3N110 * fU * fV * 2 +
+                        HSConstantData.f3N011 * fV * fW * 2 +
+                        HSConstantData.f3N101 * fW * fU * 2 ;
+#else
 	float3 f3Normal = I[0].f3Normal * fU + I[1].f3Normal * fV + I[2].f3Normal * fW;
+#endif
+
 
 	// Normalize the interpolated normal
 	f3Normal = normalize(f3Normal);
@@ -376,13 +408,12 @@ DS_Output DS_PNTriangles( HS_ConstantOutput HSConstantData,
 	float bogusCompilerWAR = min(I[0].fOppositeEdgeLOD, 0) * I[0].fClipped;
 
 	O.f2TexCoord.x += bogusCompilerWAR;
-
     // Calc diffuse color    
     O.f4Diffuse.rgb = g_f4MaterialDiffuseColor * g_f4LightDiffuse * max( 0, dot( f3Normal, g_f4LightDir.xyz ) ) + g_f4MaterialAmbientColor;  
     O.f4Diffuse.a = 1.0f; 
 
     // Transform model position with view-projection matrix
-    O.f4Position = mul( float4( f3Position.xyz, 1.0 ), g_f4x4Projection );
+    O.f4Position = mul( float4( f3Position.xyz, 1.0 ), g_f4x4ViewProjection );
         
     return O;
 }
