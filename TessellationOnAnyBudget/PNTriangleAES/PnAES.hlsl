@@ -14,8 +14,8 @@
 #define PARTITION_METHOD "fractional_odd"
 #endif
 #define IN_PN_PATCH_SIZE 3
-// related with nv::DestBufferMode              m_DestBufferMode = nv::DBM_DominantEdgeAndCorner;
-#define IN_KM_PATCH_SIZE 12
+// related with nv::DestBufferMode m_DestBufferMode
+#define IN_KM_PATCH_SIZE 9
 #define OUT_PATCH_SIZE 3
 
 //--------------------------------------------------------------------------------------
@@ -312,9 +312,9 @@ HS_ConstantOutput HS_ConstantPN( const OutputPatch<HS_ControlPointOutput, OUT_PA
 [outputtopology("triangle_cw")]
 [patchconstantfunc("HS_ConstantPN")]
 [outputcontrolpoints(OUT_PATCH_SIZE)]
-[maxtessfactor(16)]
+[maxtessfactor(15)]
 HS_ControlPointOutput HS_PNTriangles( 
-	InputPatch<HS_RenderSceneInput, 9> I,
+	InputPatch<HS_RenderSceneInput, IN_KM_PATCH_SIZE> I,
 	uint uCPID : SV_OutputControlPointID )
 {
     HS_ControlPointOutput O = (HS_ControlPointOutput)0;

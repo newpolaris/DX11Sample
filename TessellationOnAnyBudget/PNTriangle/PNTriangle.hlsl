@@ -8,7 +8,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 //--------------------------------------------------------------------------------------
 
-#define QUADRATIC_NORMAL
+// #define QUADRATIC_NORMAL
 
 //--------------------------------------------------------------------------------------
 // Constant buffer

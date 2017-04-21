@@ -310,7 +310,7 @@ private:
     ID3D11DeviceContext* m_pDevContext11;
 
 protected:
-	nv::DestBufferMode              m_DestBufferMode = nv::DBM_DominantEdgeAndCorner;
+	nv::DestBufferMode              m_DestBufferMode = nv::DBM_PnAenOnly;
 
     //These are the pointers to the two chunks of data loaded in from the mesh file
     BYTE* m_pStaticMeshData;
