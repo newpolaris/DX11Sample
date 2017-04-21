@@ -1,5 +1,5 @@
 //--------------------------------------------------------------------------------------
-// File: PNTriangles11.cpp
+// File: PNAES_11.cpp
 //
 // This code sample demonstrates the use of DX11 Hull & Domain shaders to implement the 
 // PN-Triangles tessellation technique
@@ -628,6 +628,45 @@ bool CALLBACK IsD3D11DeviceAcceptable( const CD3D11EnumAdapterInfo *AdapterInfo,
     return true;
 }
 
+HRESULT ReloadModel(ID3D11Device* pd3dDevice)
+{
+    HRESULT hr;
+
+    for( int iMeshType=0; iMeshType<MESH_TYPE_MAX; iMeshType++ )
+    {
+        g_SceneMesh[iMeshType].Destroy();
+    }
+
+    // Load the standard scene meshes
+    WCHAR str[MAX_PATH];
+    V_RETURN( DXUTFindDXSDKMediaFileCch( str, MAX_PATH, L"tiny\\tiny.sdkmesh" ) );
+    V_RETURN( g_SceneMesh[MESH_TYPE_TINY].Create( pd3dDevice, str ) );
+
+    V_RETURN( DXUTFindDXSDKMediaFileCch( str, MAX_PATH,  L"tiger\\tiger.sdkmesh" ) );
+    V_RETURN( g_SceneMesh[MESH_TYPE_TIGER].Create( pd3dDevice, str ) );
+
+    V_RETURN( DXUTFindDXSDKMediaFileCch( str, MAX_PATH, L"teapot\\teapot.sdkmesh" ) );
+    V_RETURN( g_SceneMesh[MESH_TYPE_TEAPOT].Create( pd3dDevice, str ) );
+    
+    // Load a user mesh and textures if present
+    g_bUserMesh = false;
+    g_pDiffuseTextureSRV = NULL;
+    // The mesh
+
+    str[0] = 0;
+    hr = DXUTFindDXSDKMediaFileCch( str, MAX_PATH, L"user.sdkmesh" );
+    if( SUCCEEDED(hr) && FileExists( str ) )
+    {
+        V_RETURN( g_SceneMesh[MESH_TYPE_USER].Create( pd3dDevice, str ) )
+        g_bUserMesh = true;
+    }
+    // The user textures
+    if( FileExists( L"media\\user\\diffuse.dds" ) )
+    {
+        V_RETURN( D3DX11CreateShaderResourceViewFromFile( pd3dDevice, L"media\\user\\diffuse.dds", NULL, NULL, &g_pDiffuseTextureSRV, NULL ) )
+        DXUT_SetDebugName( g_pDiffuseTextureSRV, "user\\diffuse.dds" );
+    }
+}
 
 //--------------------------------------------------------------------------------------
 // Create any D3D11 resources that aren't dependant on the back buffer
@@ -652,7 +691,7 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
     ShaderMacros[3].Definition = "1";
         
     // Main scene VS (no tessellation)
-    V_RETURN( CompileShaderFromFile( L"PNTriangle.hlsl", "VS_RenderScene", "vs_4_0", &pBlob, NULL ) ); 
+    V_RETURN( CompileShaderFromFile( L"PnAES.hlsl", "VS_RenderScene", "vs_4_0", &pBlob, NULL ) ); 
     V_RETURN( pd3dDevice->CreateVertexShader( pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &g_pSceneVS ) );
     DXUT_SetDebugName( g_pSceneVS, "VS_RenderScene" );
     
@@ -669,7 +708,7 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
     DXUT_SetDebugName( g_pSceneVertexLayout, "Primary" );
 
     // Main scene VS (with tessellation)
-    V_RETURN( CompileShaderFromFile( L"PNTriangle.hlsl", "VS_RenderSceneWithTessellation", "vs_4_0", &pBlob, NULL ) ); 
+    V_RETURN( CompileShaderFromFile( L"PnAES.hlsl", "VS_RenderSceneWithTessellation", "vs_4_0", &pBlob, NULL ) ); 
     V_RETURN( pd3dDevice->CreateVertexShader( pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &g_pSceneWithTessellationVS ) );
     SAFE_RELEASE( pBlob );
     DXUT_SetDebugName( g_pSceneWithTessellationVS, "VS_RenderSceneWithTessellation" );
@@ -678,19 +717,19 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
     V_RETURN( CreateHullShader() );
             
     // PNTriangles DS
-    V_RETURN( CompileShaderFromFile( L"PNTriangle.hlsl", "DS_PNTriangles", "ds_5_0", &pBlob, NULL ) ); 
+    V_RETURN( CompileShaderFromFile( L"PnAES.hlsl", "DS_PNTriangles", "ds_5_0", &pBlob, NULL ) ); 
     V_RETURN( pd3dDevice->CreateDomainShader( pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &g_pPNTrianglesDS ) );
     SAFE_RELEASE( pBlob );
     DXUT_SetDebugName( g_pPNTrianglesDS, "DS_PNTriangles" );
 
     // Main scene PS (no textures)
-    V_RETURN( CompileShaderFromFile( L"PNTriangle.hlsl", "PS_RenderScene", "ps_4_0", &pBlob, NULL ) ); 
+    V_RETURN( CompileShaderFromFile( L"PnAES.hlsl", "PS_RenderScene", "ps_4_0", &pBlob, NULL ) ); 
     V_RETURN( pd3dDevice->CreatePixelShader( pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &g_pScenePS ) );
     SAFE_RELEASE( pBlob );
     DXUT_SetDebugName( g_pScenePS, "PS_RenderScene" );
     
     // Main scene PS (textured)
-    V_RETURN( CompileShaderFromFile( L"PNTriangle.hlsl", "PS_RenderSceneTextured", "ps_4_0", &pBlob, NULL ) ); 
+    V_RETURN( CompileShaderFromFile( L"PnAES.hlsl", "PS_RenderSceneTextured", "ps_4_0", &pBlob, NULL ) ); 
     V_RETURN( pd3dDevice->CreatePixelShader( pBlob->GetBufferPointer(), pBlob->GetBufferSize(), NULL, &g_pTexturedScenePS ) );
     SAFE_RELEASE( pBlob );
     DXUT_SetDebugName( g_pTexturedScenePS, "PS_RenderSceneTextured" );
@@ -757,36 +796,8 @@ HRESULT CALLBACK OnD3D11CreateDevice( ID3D11Device* pd3dDevice, const DXGI_SURFA
     vecEye.x = 0.0f; vecEye.y = -1.0f; vecEye.z = -1.0f;
     g_LightCamera.SetViewParams( &vecEye, &vecAt );
 
-    // Load the standard scene meshes
-    WCHAR str[MAX_PATH];
-    V_RETURN( DXUTFindDXSDKMediaFileCch( str, MAX_PATH, L"tiny\\tiny.sdkmesh" ) );
-    V_RETURN( g_SceneMesh[MESH_TYPE_TINY].Create( pd3dDevice, str ) );
+	V_RETURN(ReloadModel(pd3dDevice));
 
-    V_RETURN( DXUTFindDXSDKMediaFileCch( str, MAX_PATH,  L"tiger\\tiger.sdkmesh" ) );
-    V_RETURN( g_SceneMesh[MESH_TYPE_TIGER].Create( pd3dDevice, str ) );
-
-    V_RETURN( DXUTFindDXSDKMediaFileCch( str, MAX_PATH, L"teapot\\teapot.sdkmesh" ) );
-    V_RETURN( g_SceneMesh[MESH_TYPE_TEAPOT].Create( pd3dDevice, str ) );
-    
-    // Load a user mesh and textures if present
-    g_bUserMesh = false;
-    g_pDiffuseTextureSRV = NULL;
-    // The mesh
-
-    str[0] = 0;
-    hr = DXUTFindDXSDKMediaFileCch( str, MAX_PATH, L"user.sdkmesh" );
-    if( SUCCEEDED(hr) && FileExists( str ) )
-    {
-        V_RETURN( g_SceneMesh[MESH_TYPE_USER].Create( pd3dDevice, str ) )
-        g_bUserMesh = true;
-    }
-    // The user textures
-    if( FileExists( L"media\\user\\diffuse.dds" ) )
-    {
-        V_RETURN( D3DX11CreateShaderResourceViewFromFile( pd3dDevice, L"media\\user\\diffuse.dds", NULL, NULL, &g_pDiffuseTextureSRV, NULL ) )
-        DXUT_SetDebugName( g_pDiffuseTextureSRV, "user\\diffuse.dds" );
-    }
-                        
     // Create sampler states for point and linear
     // Point
     D3D11_SAMPLER_DESC SamDesc;
@@ -1067,7 +1078,7 @@ void CALLBACK OnD3D11FrameRender( ID3D11Device* pd3dDevice, ID3D11DeviceContext*
     D3D11_PRIMITIVE_TOPOLOGY PrimitiveTopology = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
     if( bTessellation )
     {
-        PrimitiveTopology = D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+		PrimitiveTopology = g_SceneMesh[g_eMeshType].GetTopology();
     }
     // Render the meshes    
     for( int iMesh = 0; iMesh < (int)g_SceneMesh[g_eMeshType].GetNumMeshes(); iMesh++ )
@@ -1421,7 +1432,8 @@ void RenderMesh( CDXUTSDKMesh* pDXUTMesh, UINT uMesh, D3D11_PRIMITIVE_TOPOLOGY P
 
     for( UINT uSubset = 0; uSubset < pMesh->NumSubsets; uSubset++ )
     {
-        pSubset = pDXUTMesh->GetSubset( uMesh, uSubset );
+        auto Subset = pDXUTMesh->GetSubsetTessellation( uMesh, uSubset );
+		pSubset = &Subset;
 
         if( D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED == PrimType )
         {
@@ -1550,7 +1562,7 @@ HRESULT CreateHullShader()
     }
 
     // Create the shader
-    hr = CompileShaderFromFile( L"PNTriangle.hlsl", "HS_PNTriangles", "hs_5_0", &pBlob, ShaderMacros ); 
+    hr = CompileShaderFromFile( L"PnAES.hlsl", "HS_PNTriangles", "hs_5_0", &pBlob, ShaderMacros ); 
     if ( FAILED(hr) )
         return hr;
 

@@ -1,5 +1,5 @@
 //--------------------------------------------------------------------------------------
-// File: PNTriangle.hlsl
+// File: PnAES.hlsl
 //
 // These shaders implement the PN-Triangles tessellation technique
 //
@@ -8,7 +8,15 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 //--------------------------------------------------------------------------------------
 
-#define QUADRATIC_NORMAL
+// #define QUADRATIC_NORMAL
+
+#ifndef PARTITION_METHOD
+#define PARTITION_METHOD "fractional_odd"
+#endif
+#define IN_PN_PATCH_SIZE 3
+// related with nv::DestBufferMode              m_DestBufferMode = nv::DBM_DominantEdgeAndCorner;
+#define IN_KM_PATCH_SIZE 12
+#define OUT_PATCH_SIZE 3
 
 //--------------------------------------------------------------------------------------
 // Constant buffer
@@ -244,7 +252,7 @@ HS_RenderSceneInput VS_RenderSceneWithTessellation( VS_RenderSceneInput I )
 // This hull shader passes the tessellation factors through to the HW tessellator, 
 // and the 10 (geometry), 6 (normal) control points of the PN-triangular patch to the domain shader
 //--------------------------------------------------------------------------------------
-HS_ConstantOutput HS_ConstantPN( const OutputPatch<HS_ControlPointOutput, 3> I )
+HS_ConstantOutput HS_ConstantPN( const OutputPatch<HS_ControlPointOutput, OUT_PATCH_SIZE> I )
 {
     HS_ConstantOutput O = (HS_ConstantOutput)0;
 
@@ -303,21 +311,48 @@ HS_ConstantOutput HS_ConstantPN( const OutputPatch<HS_ControlPointOutput, 3> I )
 [partitioning("fractional_odd")]
 [outputtopology("triangle_cw")]
 [patchconstantfunc("HS_ConstantPN")]
-[outputcontrolpoints(3)]
-[maxtessfactor(9)]
+[outputcontrolpoints(OUT_PATCH_SIZE)]
+[maxtessfactor(16)]
 HS_ControlPointOutput HS_PNTriangles( 
-	InputPatch<HS_RenderSceneInput, 3> I,
+	InputPatch<HS_RenderSceneInput, 9> I,
 	uint uCPID : SV_OutputControlPointID )
 {
     HS_ControlPointOutput O = (HS_ControlPointOutput)0;
     const uint NextCPID = uCPID < 2 ? uCPID + 1 : 0;
-	
-    // Compute all three control point
-    O.f3Position[0] = I[uCPID].f3Position;
+	const uint AdditionalData = 3 + 2 * uCPID;
+	const uint NextAdditionalData = AdditionalData + 1;
+	float3 myCP, otherCP;
+
+	// Copies first.
+	O.f3Position[0] = I[uCPID].f3Position;
+	O.f3Normal = I[uCPID].f3Normal;
+	O.f2TexCoord = I[uCPID].f2TexCoord;
+	// Calculate control points next. To compute a crack-free control
+	// point, we average the control point we'd like with the
+	// control point our neighbor would like. The result is that we
+	// both agree on where that control point should go--and that
+	// results in crack-free tessellation!
+	// This is the only difference between PN and PN-AEN tessellation,
+	// made possible by modern programmable tessellation hardware.
+	myCP = ComputeCP(I[uCPID].f3Position,
+		I[NextCPID].f3Position,
+		I[uCPID].f3Normal);
+	otherCP = ComputeCP(I[AdditionalData].f3Position,
+		I[NextAdditionalData].f3Position,
+		I[AdditionalData].f3Normal);
+	O.f3Position[1] = (myCP + otherCP) / 2;
+
+	myCP = ComputeCP(I[NextCPID].f3Position,
+		I[uCPID].f3Position,
+		I[NextCPID].f3Normal);
+	otherCP = ComputeCP(I[NextAdditionalData].f3Position,
+		I[AdditionalData].f3Position,
+		I[NextAdditionalData].f3Normal);
+	O.f3Position[2] = (myCP + otherCP) / 2;
+
+ O.f3Position[0] = I[uCPID].f3Position;
     O.f3Position[1] = ComputeCP(I[uCPID].f3Position, I[NextCPID].f3Position, I[uCPID].f3Normal);
     O.f3Position[2] = ComputeCP(I[NextCPID].f3Position, I[uCPID].f3Position, I[NextCPID].f3Normal);
-    O.f3Normal = I[uCPID].f3Normal;
-    O.f2TexCoord = I[uCPID].f2TexCoord;
 
 #ifdef USE_SCREEN_SPACE_ADAPTIVE_TESSELLATION
 	O.fOppositeEdgeLOD = ComputeEdgeLOD(

@@ -8,9 +8,105 @@
 //
 // Copyright (c) Microsoft Corporation. All rights reserved.
 //--------------------------------------------------------------------------------------
+
 #include "DXUT.h"
 #include "SDKMesh.h"
 #include "SDKMisc.h"
+
+#include <memory>
+#include <vector>
+
+/*------------------------------------------------------------------------------
+	NVTessLib for computing adjacency used for tessellation.
+------------------------------------------------------------------------------*/
+
+/*
+/**
+ * Provides static mesh render data to the NVIDIA tessellation library.
+ */
+class FStaticMeshNvRenderBuffer : public nv::RenderBuffer
+{
+public:
+
+	/** Construct from static mesh render buffers. */
+	FStaticMeshNvRenderBuffer(
+		SDKMESH_VERTEX_BUFFER_HEADER* vheader, 
+		BYTE* vbuffer,
+		SDKMESH_INDEX_BUFFER_HEADER* iheader,
+		BYTE* ibuffer) : m_vbuffer(vbuffer)
+	{
+		for (int i = 0; i < 255; i++)
+		{
+			auto& decl = vheader->Decl[i];
+			if (decl.Stream == 255) break;
+			if (decl.Usage == 5) {
+				TexOffset = decl.Offset;
+			} else if (decl.Usage == 0) {
+				PosOffset = decl.Offset;
+			}
+		}
+		Stride = vheader->StrideBytes;
+
+		nv::IndexBufferType ibtype = nv::IBT_U32;
+		if (iheader->IndexType == IT_16BIT) {
+			ibtype = nv::IBT_U16;
+		}
+		mIb = new nv::IndexBuffer( ibuffer, ibtype, iheader->NumIndices, false );
+	}
+
+	/** Retrieve the position and first texture coordinate of the specified index. */
+	virtual nv::Vertex getVertex( unsigned int Index ) const
+	{
+		nv::Vertex Vertex;
+
+		BYTE* ptr = m_vbuffer + Stride*Index;
+
+		auto Pos = reinterpret_cast<D3DVECTOR*>(ptr+PosOffset);
+		Vertex.pos.x = Pos->x;
+		Vertex.pos.y = Pos->y;
+		Vertex.pos.z = Pos->z;
+
+		if( TexOffset >= 0 )
+		{
+			auto UV = reinterpret_cast<D3DXVECTOR2*>(ptr + TexOffset);
+			Vertex.uv.x = UV->x;
+			Vertex.uv.y = UV->y;
+		}
+		else
+		{
+			Vertex.uv.x = 0.0f;
+			Vertex.uv.y = 0.0f;
+		}
+		return Vertex;
+	}
+
+private:
+	BYTE* m_vbuffer;
+	int PosOffset;
+	int TexOffset = -1;
+	int Stride;
+
+	/** The position vertex buffer for the static mesh. */
+
+	/** The vertex buffer for the static mesh. */
+
+	/** Copying is forbidden. */
+	FStaticMeshNvRenderBuffer( const FStaticMeshNvRenderBuffer& ); 
+	FStaticMeshNvRenderBuffer& operator=( const FStaticMeshNvRenderBuffer& );
+};
+
+std::shared_ptr<nv::IndexBuffer> BuildTessellationBuffer(
+	nv::DestBufferMode destBufferMode,
+	SDKMESH_VERTEX_BUFFER_HEADER* vheader,
+	BYTE* vbuffer,
+	SDKMESH_INDEX_BUFFER_HEADER* iheader,
+	BYTE* ibuffer)
+{
+	FStaticMeshNvRenderBuffer StaticMeshRenderBuffer(vheader, vbuffer, iheader, ibuffer);
+	std::shared_ptr<nv::IndexBuffer> PnAENIndexBuffer(
+		nv::tess::buildTessellationBuffer(&StaticMeshRenderBuffer, destBufferMode, true));
+	return PnAENIndexBuffer;
+}
 
 //--------------------------------------------------------------------------------------
 void CDXUTSDKMesh::LoadMaterials( ID3D11Device* pd3dDevice, SDKMESH_MATERIAL* pMaterials, UINT numMaterials,
@@ -468,12 +564,37 @@ HRESULT CDXUTSDKMesh::CreateFromMemory( ID3D11Device* pDev11,
         BYTE* pIndices = NULL;
         pIndices = ( BYTE* )( pBufferData + ( m_pIndexBufferArray[i].DataOffset - BufferDataStart ) );
 
-        if( pDev11 )
-            CreateIndexBuffer( pDev11, &m_pIndexBufferArray[i], pIndices, pLoaderCallbacks11 );
-        else if( pDev9 )
-            CreateIndexBuffer( pDev9, &m_pIndexBufferArray[i], pIndices, pLoaderCallbacks9 );
+		BYTE* pIndicesBuffer = pIndices;
+		std::shared_ptr<nv::IndexBuffer> temp;
+		if (m_DestBufferMode != nv::DestBufferMode_MAX)
+		{
+			// Replace pIndices points
+			auto indexWrapper = BuildTessellationBuffer(
+				m_DestBufferMode,
+				&m_pVertexBufferArray[i],
+				m_ppVertices[i],
+				&m_pIndexBufferArray[i],
+				pIndices);
 
-        m_ppIndices[i] = pIndices;
+			int nByte = 4;
+			if (indexWrapper->getType() == nv::IBT_U16)
+				nByte = 2;
+
+			pIndicesBuffer = reinterpret_cast<BYTE*>(indexWrapper->getRaw());
+
+			// to used in createBuffer
+			m_pIndexBufferArray[i].NumIndices = indexWrapper->getLength();
+			m_pIndexBufferArray[i].SizeBytes = nByte*indexWrapper->getLength();
+
+			temp = indexWrapper;
+		}
+
+        if( pDev11 )
+            CreateIndexBuffer( pDev11, &m_pIndexBufferArray[i], pIndicesBuffer, pLoaderCallbacks11 );
+        else if( pDev9 )
+            CreateIndexBuffer( pDev9, &m_pIndexBufferArray[i], pIndicesBuffer, pLoaderCallbacks9 );
+
+		m_ppIndices[i] = pIndices;
     }
 
     // Load Materials
@@ -1479,6 +1600,16 @@ SDKMESH_SUBSET* CDXUTSDKMesh::GetSubset( UINT iMesh, UINT iSubset )
     return &m_pSubsetArray[ m_pMeshArray[ iMesh ].pSubsets[iSubset] ];
 }
 
+SDKMESH_SUBSET CDXUTSDKMesh::GetSubsetTessellation( UINT iMesh, UINT iSubset )
+{
+	auto pPtr = &m_pSubsetArray[m_pMeshArray[iMesh].pSubsets[iSubset]];
+
+	SDKMESH_SUBSET subset = *pPtr;
+
+	subset.IndexCount *= MultiplyIndiceFactor();
+	return subset;
+}
+
 //--------------------------------------------------------------------------------------
 UINT CDXUTSDKMesh::GetVertexStride( UINT iMesh, UINT iVB )
 {
@@ -1723,6 +1854,30 @@ bool CDXUTSDKMesh::GetAnimationProperties( UINT* pNumKeys, FLOAT* pFrameTime )
     *pFrameTime = 1.0f / (FLOAT)m_pAnimationHeader->AnimationFPS;
 
     return true;
+}
+
+D3D11_PRIMITIVE_TOPOLOGY CDXUTSDKMesh::GetTopology() const
+{
+	using namespace nv;
+	switch (m_DestBufferMode) {
+	case DBM_DominantEdgeAndCorner:			return D3D_PRIMITIVE_TOPOLOGY_12_CONTROL_POINT_PATCHLIST;
+	case DBM_PnAenOnly:						return D3D_PRIMITIVE_TOPOLOGY_9_CONTROL_POINT_PATCHLIST;
+	case DBM_PnAenDominantCorner:			return D3D_PRIMITIVE_TOPOLOGY_12_CONTROL_POINT_PATCHLIST;
+	case DBM_PnAenDominantEdgeAndCorner:	return D3D_PRIMITIVE_TOPOLOGY_18_CONTROL_POINT_PATCHLIST;
+	}
+	return D3D_PRIMITIVE_TOPOLOGY_9_CONTROL_POINT_PATCHLIST;
+}
+
+int CDXUTSDKMesh::MultiplyIndiceFactor() const
+{
+	using namespace nv;
+	switch (m_DestBufferMode) {
+	case DBM_DominantEdgeAndCorner:			return 4;
+	case DBM_PnAenOnly:						return 3;
+	case DBM_PnAenDominantCorner:			return 4;
+	case DBM_PnAenDominantEdgeAndCorner:	return 6;
+	}
+	return 1;
 }
 
 

@@ -85,12 +85,14 @@
     <ResourceCompile Include="PNTriangles11.rc">
       <Filter>Resource Files</Filter>
     </ResourceCompile>
+    <ClInclude Include="nvtesslib\src\nvtess.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="PNTriangle_11.cpp" />
+    <ClCompile Include="nvtesslib\src\nvtess.cpp" />
+    <ClCompile Include="PnAES_11.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <CustomBuild Include="PNTriangle.hlsl">
+    <CustomBuild Include="PnAES.hlsl">
       <Filter>Shaders</Filter>
     </CustomBuild>
   </ItemGroup>

@@ -13,6 +13,8 @@
 #ifndef _SDKMESH_
 #define _SDKMESH_
 
+#include "nvtess.h"
+
 //--------------------------------------------------------------------------------------
 // Hard Defines for the various structures
 //--------------------------------------------------------------------------------------
@@ -308,6 +310,8 @@ private:
     ID3D11DeviceContext* m_pDevContext11;
 
 protected:
+	nv::DestBufferMode              m_DestBufferMode = nv::DBM_DominantEdgeAndCorner;
+
     //These are the pointers to the two chunks of data loaded in from the mesh file
     BYTE* m_pStaticMeshData;
     BYTE* m_pHeapData;
@@ -485,6 +489,7 @@ public:
     SDKMESH_MESH* GetMesh( UINT iMesh );
     UINT                            GetNumSubsets( UINT iMesh );
     SDKMESH_SUBSET* GetSubset( UINT iMesh, UINT iSubset );
+	SDKMESH_SUBSET GetSubsetTessellation(UINT iMesh, UINT iSubset);
     UINT                            GetVertexStride( UINT iMesh, UINT iVB );
     UINT                            GetNumFrames();
     SDKMESH_FRAME*                  GetFrame( UINT iFrame );
@@ -508,6 +513,9 @@ public:
     const D3DXMATRIX*               GetWorldMatrix( UINT iFrameIndex );
     const D3DXMATRIX*               GetInfluenceMatrix( UINT iFrameIndex );
     bool                            GetAnimationProperties( UINT* pNumKeys, FLOAT* pFrameTime );
+
+    D3D11_PRIMITIVE_TOPOLOGY        GetTopology() const;
+	int								MultiplyIndiceFactor() const;
 };
 
 //-----------------------------------------------------------------------------
