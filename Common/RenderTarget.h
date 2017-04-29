@@ -26,6 +26,10 @@ public:
 	void Bind();
 	void UnBind();
 
+	bool m_bClearColor = true;
+	bool m_bClearDepth = true;
+	bool m_bClearStencil = true;
+
 private:
 	ID3D11DeviceContext* m_pContext = nullptr;
 	DepthBufferPtr m_Depth;

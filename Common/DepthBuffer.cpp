@@ -41,7 +41,12 @@ void DepthBuffer::Create(uint32_t Width, uint32_t Height, DXGI_FORMAT Format)
 	// HR(g_Device->CreateShaderResourceView(Tex.Get(), 0, m_DepthSRV.GetAddressOf()));
 }
 
-void DepthBuffer::Clear()
+void DepthBuffer::Clear(bool bClearDepth, bool bClearStencil)
 {
-	m_pContext->ClearDepthStencilView(m_DSV.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, m_ClearDepth, m_ClearStencil);
+	UINT ClearFlags = 0;
+	if (bClearDepth)
+		ClearFlags |= D3D11_CLEAR_DEPTH;
+	if (bClearStencil)
+		ClearFlags |= D3D11_CLEAR_STENCIL;
+	m_pContext->ClearDepthStencilView(m_DSV.Get(), ClearFlags, m_ClearDepth, m_ClearStencil);
 }

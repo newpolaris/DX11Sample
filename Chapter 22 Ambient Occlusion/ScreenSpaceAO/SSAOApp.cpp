@@ -545,10 +545,6 @@ void SSAOApp::DrawScene()
 	// ApplyPipelineState("BlurSSAO");
     // BlurAmbientMap(cmdList, currFrame, blurCount);
 
-	std::array<ID3D11RenderTargetView*, D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT> rtvs;
-	rtvs[0] = m_RenderTargetBuffer->GetRTV();
-	md3dImmediateContext->OMSetRenderTargets(1, rtvs.data(), mDepths["depthBuffer"]->GetDSV());
-
 	m_RenderTargetBuffer->Clear();
 	mDepths["depthBuffer"]->Clear();
 
@@ -1382,9 +1378,6 @@ void SSAOApp::BuildPSO()
 	anisotropicWrap.BorderColor[2] = 0.0f;
 	CreateSampler("anisotropicWrap", anisotropicWrap);
 
-	CreatePSO("Textured", { "texture", "texture", "texture" });
-	CreatePSO("Flat", { "flat", "flat", "flat" });
-
 	DXGI_SWAP_CHAIN_DESC desc;
 	mSwapChain->GetDesc(&desc);
 	auto BufferDesc = desc.BufferDesc;
@@ -1425,4 +1418,19 @@ void SSAOApp::BuildPSO()
 	ComputeSSAOState.RT = "ssao";
 	ComputeSSAOState.BindSampler(VertexShader, { "normalDepth", "randomeVec" });
 	CreatePSO("ComputeSSAO", ComputeSSAOState);
+
+	auto DrawRenderTarget = CreateRenderTarget("draw");
+	DrawRenderTarget->SetColor(Slot::Color0, m_RenderTargetBuffer);
+	DrawRenderTarget->SetDepth(DepthBuffer);
+	DrawRenderTarget->m_bClearColor = false;
+	DrawRenderTarget->m_bClearDepth = false;
+	DrawRenderTarget->m_bClearStencil = false;
+
+	PipelineStateDesc TexturedState { "texture", "texture", "texture" };
+	TexturedState.RT = "draw";
+	CreatePSO("Textured", TexturedState);
+
+	PipelineStateDesc FlatState { "flat", "flat", "flat" };
+	FlatState.RT = "draw";
+	CreatePSO("Flat", FlatState);
 }

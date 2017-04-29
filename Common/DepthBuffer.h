@@ -9,7 +9,7 @@ public:
 	DepthBuffer(const std::string& Name);
 
 	void Create(uint32_t Width, uint32_t Height, DXGI_FORMAT Format);
-	void Clear();
+	void Clear(bool bClearDepth = true, bool bClearStencil = true);
 	ID3D11DepthStencilView* GetDSV() { return m_DSV.Get(); }
 
 	std::string m_name;

@@ -19,11 +19,11 @@ void RenderTarget::SetDepth(DepthBufferPtr buffer)
 void RenderTarget::Bind()
 {
 	for (uint8_t i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
-		if (m_Color[i])
+		if (m_Color[i] && m_bClearColor)
 			m_Color[i]->Clear();
 
 	if (m_Depth)
-		m_Depth->Clear();
+		m_Depth->Clear(m_bClearDepth, m_bClearStencil);
 
 	std::array<ID3D11RenderTargetView*, D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT> rtvs;
 	uint8_t rtv_count = 0;
