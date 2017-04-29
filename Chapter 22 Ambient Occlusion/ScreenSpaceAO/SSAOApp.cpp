@@ -16,7 +16,10 @@
 #include "PipelineStateObject.h"
 #include "ShaderFactoryDX11.h"
 #include "MeshGeometry.h"
-#include "Octree.h"
+#include "RenderTarget.h"
+#include "TextureResource.h"
+#include "ColorBuffer.h"
+#include "DepthBuffer.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "D3DCompiler.lib")
@@ -32,6 +35,10 @@
 #endif
 
 using Microsoft::WRL::ComPtr;
+
+Color ConvertColor(const XMVECTORF32& vec) {
+	return Color(vec.f[0], vec.f[1], vec.f[2], vec.f[3]);
+}
 
 // Lightweight structure stores parameters to draw a shape.  This will
 // vary from app-to-app.
@@ -68,97 +75,18 @@ enum RenderLayer
 	Count
 };
 
-enum ShaderType
-{
-	VertexShader = 0,
-	GeometryShader,
-	PixelShader, 
-	ComputeShader,
-};
-
-// Self AO 이상을 원한다면, interaction이 있는 모든 개체를 넣어서
-// 수행할 수 밖에 없음. 리얼타임으로 돌릴 수 없을 듯
-template <typename T>
-void BuildVertexAmbientOcclusion(
-	std::vector<T>& vertices,
-	const std::vector<UINT>& indices)
-{
-	UINT vcount = vertices.size();
-	UINT tcount = indices.size()/3;
-
-	std::vector<XMFLOAT3> positions(vcount);
-	for (UINT i = 0; i < vcount; ++i) 
-		positions[i] = vertices[i].Pos;
-
-	Octree octree;
-	octree.Build(positions, indices);
-	
-	// For each vertex, count how many triangles contain the vertex.
-	std::vector<int> vertexSharedCount(vcount);
-	for(UINT i = 0; i < tcount; ++i)
-	{
-		UINT i0 = indices[i*3+0];
-		UINT i1 = indices[i*3+1];
-		UINT i2 = indices[i*3+2];
-
-		XMVECTOR v0 = XMLoadFloat3(&vertices[i0].Pos);
-		XMVECTOR v1 = XMLoadFloat3(&vertices[i1].Pos);
-		XMVECTOR v2 = XMLoadFloat3(&vertices[i2].Pos);
-
-		XMVECTOR edge0 = v1 - v0;
-		XMVECTOR edge1 = v2 - v0;
-
-		XMVECTOR normal = XMVector3Normalize(XMVector3Cross(edge0, edge1));
-
-		XMVECTOR centroid = (v0 + v1 + v2)/3.0f;
-
-		// Offset to avoid self intersection.
-		centroid += 0.001f*normal;
-
-		const int NumSampleRays = 32;
-		float numUnoccluded = 0;
-		for(int j = 0; j < NumSampleRays; ++j)
-		{
-			XMVECTOR randomDir = MathHelper::RandHemisphereUnitVec3(normal);
-
-			// TODO: Technically we should not count intersections that are far 
-			// away as occluding the triangle, but this is OK for demo.
-			if( !octree.RayOctreeIntersect(centroid, randomDir) )
-			{
-				numUnoccluded++;
-			}
-		}
-		
-		float ambientAccess = numUnoccluded / NumSampleRays;
-
-		// Average with vertices that share this face.
-		vertices[i0].Ambient += ambientAccess;
-		vertices[i1].Ambient += ambientAccess;
-		vertices[i2].Ambient += ambientAccess;
-
-		vertexSharedCount[i0]++;
-		vertexSharedCount[i1]++;
-		vertexSharedCount[i2]++;
-	}
-
-	// Finish average by dividing by the number of samples we added.
-	for(UINT i = 0; i < vcount; ++i)
-	{
-		vertices[i].Ambient /= vertexSharedCount[i];
-	}
-}
-
-
-class AOApp : public D3DApp 
+class SSAOApp : public D3DApp 
 {
 public:
-	AOApp(HINSTANCE hInstance);
-	~AOApp();
+	SSAOApp(HINSTANCE hInstance);
+	~SSAOApp();
 
 	bool Init();
 	void OnResize();
 	void UpdateScene(float dt);
 	void DrawScene();
+
+	void ComputeSSAO();
 
 	void OnMouseDown(WPARAM btnState, int x, int y);
 	void OnMouseUp(WPARAM btnState, int x, int y);
@@ -168,12 +96,19 @@ public:
 private:
 	void LoadTextures();
 	void CompileShader(ShaderType shaderType, std::string name, D3D_SHADER_MACRO * defines, const std::wstring & filename, const std::string & function, const std::string & model);
-	void CreatePSO(RenderLayer layer, const PipelineStateDesc& desc);
+	void CreatePSO(const std::string & tag, const PipelineStateDesc & desc);
+
+	RenderTargetPtr CreateRenderTarget(std::string name);
+	ColorBufferPtr CreateColorBuffer(std::string name, uint32_t Width, uint32_t Height, uint32_t NumMips, DXGI_FORMAT Format, D3D11_SUBRESOURCE_DATA* Data = nullptr);
+	DepthBufferPtr CreateDepthBuffer(std::string name, uint32_t Width, uint32_t Height, DXGI_FORMAT Format);
+
+	void CreateSampler(std::string name, const CD3D11_SAMPLER_DESC & desc);
 
 	void BuildFX();
 	void BuildVertexLayout();
 	void BuildMaterials();
 	void BuildGeometry();
+	void BuildScreenQuad();
 	void BuildShapeGeometryBuffers();
 	void BuildSkullGeometryBuffers();
 	void BuildRenderItems();
@@ -184,7 +119,6 @@ private:
 		std::string matname,
 		D3D11_PRIMITIVE_TOPOLOGY primitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	void BuildFrameResources();
-	void BuildSamplerState();
 	void CreateBlendState(const std::string& tag, const D3D11_BLEND_DESC & desc);
 	void CreateDepthStencilState(const std::string& tag, const D3D11_DEPTH_STENCIL_DESC& desc);
 	void CreateResterizerState(const std::string & tag, const D3D11_RASTERIZER_DESC & desc);
@@ -194,6 +128,8 @@ private:
 	void UpdateCamera(float dt);
 	void DrawRenderItems(RenderLayer layer);
 	void DrawItems();
+	void ApplyPipelineState(const std::string& tag);
+	ID3D11SamplerState * GetSampler(const std::string & name);
 	void UpdateMainPassCB(float dt);
 
 	ID3DBlob* GetVertexShaderBlob(std::string name);
@@ -219,10 +155,17 @@ private:
 	std::unordered_map<std::string, ComPtr<ID3D11InputLayout>> mInputLayout;
 	std::unordered_map<std::string, ComPtr<ID3D11RasterizerState>> mRasterizerState;
 	std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
-	std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
 	std::unordered_map<std::string, std::unique_ptr<MaterialFresnel>> mMaterials;
+	std::unordered_map<std::string, std::shared_ptr<TextureResource>> mTextures;
+	std::unordered_map<std::string, ColorBufferPtr> mColors;
+	std::unordered_map<std::string, DepthBufferPtr> mDepths;
+	std::unordered_map<std::string, RenderTargetPtr> mRenderTargets;
     std::unique_ptr<FrameResource> mFrameResource;
-	std::vector<ComPtr<ID3D11SamplerState>> mSamplerState;
+	std::unordered_map<std::string, ComPtr<ID3D11SamplerState>> m_SamplerState;
+
+	ColorBufferPtr m_RenderTargetBuffer;
+
+	ComPtr<ID3D11Buffer> m_ScreenVertex, m_ScreenIndex;
 
 	// List of all the render items.
 	std::vector<std::unique_ptr<RenderItem>> mAllRitems;
@@ -230,12 +173,8 @@ private:
 	// Render items divided by state (like PSO)
 	std::vector<RenderItem*> mRitemLayer[Count];
 	std::vector<std::pair<int, std::string>> mRenderLayerConstantBuffer[Count];
-	std::unique_ptr<PipelineStateObject> mPSOs[Count];
-
+	std::unordered_map<std::string, std::unique_ptr<PipelineStateObject>> mPSOs;
 	std::unordered_map<std::string, ComPtr<ID3D11Buffer>> mConstantBuffers;
-
-	ComPtr<ID3D11ShaderResourceView> mOffscreenSRV;
-	ComPtr<ID3D11UnorderedAccessView> mOffscreenUAV;
 
 	// Define transformations from local spaces to world space.
 	XMFLOAT4X4 mSphereWorld[10];
@@ -262,21 +201,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 #if defined(DEBUG) | defined(_DEBUG)
 	_CrtSetDbgFlag( _CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF );
 #endif
+	SSAOApp theApp(hInstance);
 
-	AOApp theApp(hInstance);
-	
-	if( !theApp.Init() )
+	if (!theApp.Init())
 		return 0;
-	
-	return theApp.Run();
+	theApp.Run();
 }
  
 
-AOApp::AOApp(HINSTANCE hInstance)
+SSAOApp::SSAOApp(HINSTANCE hInstance)
 : D3DApp(hInstance),
   mEyePos(0.0f, 0.0f, 0.0f), mTheta(1.5f*MathHelper::Pi), mPhi(0.1f*MathHelper::Pi), mRadius(15.0f)
 {
-	mMainWndCaption = L"AO Demo";
+	mMainWndCaption = L"SSAO Demo";
 	
 	mLastMousePos.x = 0;
 	mLastMousePos.y = 0;
@@ -302,11 +239,11 @@ AOApp::AOApp(HINSTANCE hInstance)
 	}
 }
 
-AOApp::~AOApp()
+SSAOApp::~SSAOApp()
 {
 }
 
-bool AOApp::Init()
+bool SSAOApp::Init()
 {
 	if (!D3DApp::Init())
 		return false;
@@ -316,7 +253,6 @@ bool AOApp::Init()
 	BuildVertexLayout();
 	BuildGeometry();
 	BuildMaterials();
-	BuildSamplerState();
 	BuildPSO();
 	BuildRenderItems();
 	BuildFrameResources();
@@ -325,23 +261,35 @@ bool AOApp::Init()
 	return true;
 }
 
-void AOApp::OnResize()
+void SSAOApp::OnResize()
 {
 	D3DApp::OnResize();
 
 	mProj = XMMatrixPerspectiveFovLH(0.25f*MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+
+	// Resize the swap chain and recreate the render target view.
+
+	ComPtr<ID3D11Texture2D> RenderTargetBuffer;
+
+	HR(mSwapChain->GetBuffer(0, IID_PPV_ARGS(&RenderTargetBuffer)));
+	m_RenderTargetBuffer = ColorBuffer::CreateFromSwapChain("Screen", RenderTargetBuffer);
+	m_RenderTargetBuffer->SetColor(ConvertColor(Colors::LightSteelBlue));
 }
 
-void AOApp::BuildFX()
+void SSAOApp::BuildFX()
 {
 	D3D_SHADER_MACRO textureMacros[] = { "TEXTURE", "1", NULL, NULL };
 	CompileShader(VertexShader, "texture", textureMacros, L"FX/Basic.fx", "VS", "vs_5_0");
 	CompileShader(PixelShader, "texture", textureMacros, L"FX/Basic.fx", "PS", "ps_5_0");
 	CompileShader(VertexShader, "flat", nullptr, L"FX/Basic.fx", "VS", "vs_5_0");
 	CompileShader(PixelShader, "flat", nullptr, L"FX/Basic.fx", "PS", "ps_5_0");
+	CompileShader(VertexShader, "normalDepth", nullptr, L"FX/NormalDepth.hlsl", "VS", "vs_5_0");
+	CompileShader(PixelShader, "normalDepth", nullptr, L"FX/NormalDepth.hlsl", "PS", "ps_5_0");
+	CompileShader(VertexShader, "ssao", nullptr, L"FX/SSAO.hlsl", "VS", "vs_5_0");
+	CompileShader(PixelShader, "ssao", nullptr, L"FX/SSAO.hlsl", "PS", "ps_5_0");
 }
 
-void AOApp::CompileShader(
+void SSAOApp::CompileShader(
 	ShaderType shaderType,
 	std::string name, 
 	D3D_SHADER_MACRO* defines, 
@@ -382,34 +330,33 @@ void AOApp::CompileShader(
 	}
 }
 
-ID3DBlob* AOApp::GetVertexShaderBlob(std::string name)
+ID3DBlob* SSAOApp::GetVertexShaderBlob(std::string name)
 {
 	return mVShaders[name].second.Get();
 }
 
-ID3D11VertexShader* AOApp::GetVertexShader(std::string name)
+ID3D11VertexShader* SSAOApp::GetVertexShader(std::string name)
 {
 	return mVShaders[name].first.Get();
 }
 
-ID3D11PixelShader * AOApp::GetPixelShader(std::string name)
+ID3D11PixelShader * SSAOApp::GetPixelShader(std::string name)
 {
 	return mPShaders[name].first.Get();
 }
 
-ID3D11ComputeShader* AOApp::GetComputeShader(std::string name)
+ID3D11ComputeShader* SSAOApp::GetComputeShader(std::string name)
 {
 	return mCShaders[name].first.Get();
 }
 
-void AOApp::BuildVertexLayout()
+void SSAOApp::BuildVertexLayout()
 {
 	// Create the vertex input layout.
 	std::vector<D3D11_INPUT_ELEMENT_DESC> ILTex = {
 		{"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
 		{"NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
-		{"AMBIENT",  0, DXGI_FORMAT_R32_FLOAT, 0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0},
-		{"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 28, D3D11_INPUT_PER_VERTEX_DATA, 0},
+		{"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0},
 	};
 
 	ComPtr<ID3D11InputLayout> pLayoutTex;
@@ -425,7 +372,6 @@ void AOApp::BuildVertexLayout()
 	std::vector<D3D11_INPUT_ELEMENT_DESC> IL = {
 		{"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
 		{"NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
-		{"AMBIENT",  0, DXGI_FORMAT_R32_FLOAT, 0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0}
 	};
 
 	ComPtr<ID3D11InputLayout> pLayout;
@@ -438,7 +384,7 @@ void AOApp::BuildVertexLayout()
 	mInputLayout["flat"] = pLayout;
 }
 
-void AOApp::BuildMaterials()
+void SSAOApp::BuildMaterials()
 {
 	auto bricks0 = std::make_unique<MaterialFresnel>();
 	bricks0->Name = "bricks0";
@@ -483,7 +429,7 @@ void AOApp::BuildMaterials()
 	mMaterials["screenMat"] = std::move(screenMat);
 }
 
-void AOApp::UpdateScene(float dt)
+void SSAOApp::UpdateScene(float dt)
 {
 	OnKeyBoardInput(dt);
 	UpdateCamera(dt);
@@ -491,11 +437,11 @@ void AOApp::UpdateScene(float dt)
 	UploadObjects();
 }
 
-void AOApp::OnKeyBoardInput(float dt)
+void SSAOApp::OnKeyBoardInput(float dt)
 {
 }
 
-void AOApp::UpdateCamera(float dt)
+void SSAOApp::UpdateCamera(float dt)
 {
 	// Convert Spherical to Cartesian coordinates.
 	mEyePos.x = mRadius*sinf(mPhi)*cosf(mTheta);
@@ -510,22 +456,8 @@ void AOApp::UpdateCamera(float dt)
 	mView = XMMatrixLookAtLH(pos, target, up);
 }
 
-void AOApp::DrawRenderItems(RenderLayer layer)
+void SSAOApp::DrawRenderItems(RenderLayer layer)
 {
-	auto pPSO = mPSOs[(int)layer].get();
-	md3dImmediateContext->VSSetShader(pPSO->pVS, nullptr, 0);
-	md3dImmediateContext->PSSetShader(pPSO->pPS, nullptr, 0);
-	md3dImmediateContext->GSSetShader(pPSO->pGS, nullptr, 0);
-	md3dImmediateContext->IASetInputLayout(pPSO->pIL);
-	md3dImmediateContext->OMSetBlendState(
-		pPSO->blend.pBlendState,
-		pPSO->blend.BlendFactor.data(),
-		pPSO->blend.SampleMask);
-	md3dImmediateContext->OMSetDepthStencilState(
-		pPSO->depthStencil.pDepthStencilState,
-		pPSO->depthStencil.StencilRef);
-	md3dImmediateContext->RSSetState(pPSO->pResterizer);
-
 	std::array<ID3D11Buffer*, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT> ConstantBuffers;
 	ConstantBuffers.assign(nullptr);
 	auto& cbuffers = mRenderLayerConstantBuffer[(int)layer];
@@ -552,40 +484,187 @@ void AOApp::DrawRenderItems(RenderLayer layer)
 		md3dImmediateContext->PSSetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, ConstantBuffers.data());
 		md3dImmediateContext->GSSetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, ConstantBuffers.data());
 
-		std::array<ID3D11ShaderResourceView*, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT> SRV;
+		// Merterial 로 부터 GetSRV 하도록 바꿀 것
+		std::vector<ID3D11ShaderResourceView*> SRV;
 		auto textureName = ri->Mat->DiffuseSrv;
 		if (!textureName.empty())
 		{
 			assert(mTextures.count(textureName));
-			SRV[0] = mTextures[textureName]->Resource.Get();
-			md3dImmediateContext->PSSetShaderResources(0, 1, SRV.data());
+			SRV.push_back(mTextures[textureName]->GetSRV());
+			md3dImmediateContext->PSSetShaderResources(0, SRV.size(), SRV.data());
 		}
 
 		md3dImmediateContext->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
 	}
 }
 
-void AOApp::DrawItems()
+void SSAOApp::DrawItems()
 {
-	DrawRenderItems(RenderLayer::Flat);
-	DrawRenderItems(RenderLayer::Textured);
 }
 
-void AOApp::DrawScene()
+void SSAOApp::ApplyPipelineState(const std::string& tag)
 {
-	std::array<ID3D11SamplerState*, D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT> Sampler;
-	Sampler[0] = mSamplerState[4].Get();
-	md3dImmediateContext->PSSetSamplers(0, 1, Sampler.data());
+	ID3D11ShaderResourceView* pSRVs[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = { 0 };
+    md3dImmediateContext->VSSetShaderResources(0, ARRAYSIZE(pSRVs), pSRVs);
+    md3dImmediateContext->GSSetShaderResources(0, ARRAYSIZE(pSRVs), pSRVs);
+    md3dImmediateContext->PSSetShaderResources(0, ARRAYSIZE(pSRVs), pSRVs);
+    md3dImmediateContext->CSSetShaderResources(0, ARRAYSIZE(pSRVs), pSRVs);
 
-	md3dImmediateContext->ClearRenderTargetView(mRenderTargetView, reinterpret_cast<const float*>(&Colors::LightSteelBlue));
-	md3dImmediateContext->ClearDepthStencilView(mDepthStencilView, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
+	auto pPSO = mPSOs[tag].get();
+	md3dImmediateContext->VSSetShader(pPSO->pVS, nullptr, 0);
+	md3dImmediateContext->PSSetShader(pPSO->pPS, nullptr, 0);
+	md3dImmediateContext->GSSetShader(pPSO->pGS, nullptr, 0);
+	md3dImmediateContext->IASetInputLayout(pPSO->pIL);
+	md3dImmediateContext->OMSetBlendState(
+		pPSO->blend.pBlendState,
+		pPSO->blend.BlendFactor.data(),
+		pPSO->blend.SampleMask);
+	md3dImmediateContext->OMSetDepthStencilState(
+		pPSO->depthStencil.pDepthStencilState,
+		pPSO->depthStencil.StencilRef);
+	md3dImmediateContext->RSSetState(pPSO->pResterizer);
+	if (pPSO->pRenderTarget)
+		pPSO->pRenderTarget->Bind();
+}
 
-	DrawItems();
+ID3D11SamplerState* SSAOApp::GetSampler(const std::string& name)
+{
+	 assert(m_SamplerState.count(name));
+	 return m_SamplerState[name].Get();
+}
+
+void SSAOApp::DrawScene()
+{
+	ApplyPipelineState("NormalDepth");
+	DrawRenderItems(RenderLayer::Flat);
+	DrawRenderItems(RenderLayer::Textured);
+
+	ApplyPipelineState("ComputeSSAO");
+	ComputeSSAO();
+
+	// ApplyPipelineState("BlurSSAO");
+    // BlurAmbientMap(cmdList, currFrame, blurCount);
+
+	std::array<ID3D11RenderTargetView*, D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT> rtvs;
+	rtvs[0] = m_RenderTargetBuffer->GetRTV();
+	md3dImmediateContext->OMSetRenderTargets(1, rtvs.data(), mDepths["depthBuffer"]->GetDSV());
+
+	m_RenderTargetBuffer->Clear();
+	mDepths["depthBuffer"]->Clear();
+
+	std::vector<ID3D11SamplerState*> Sampler = { GetSampler("anisotropicWrap") };
+	md3dImmediateContext->PSSetSamplers(0, Sampler.size(), Sampler.data());
+
+	std::vector<ID3D11ShaderResourceView*> SRV = { mColors["AmbientBuffer0"]->GetSRV() };
+
+	ApplyPipelineState("Flat");
+	md3dImmediateContext->PSSetShaderResources(1, SRV.size(), SRV.data());
+	DrawRenderItems(RenderLayer::Flat);
+
+	ApplyPipelineState("Textured");
+	md3dImmediateContext->PSSetShaderResources(1, SRV.size(), SRV.data());
+	DrawRenderItems(RenderLayer::Textured);
 
 	HR(mSwapChain->Present(0, 0));
 }
 
-void AOApp::OnMouseDown(WPARAM btnState, int x, int y)
+std::array<XMFLOAT4, 14> CalcOffsetVectors() 
+{
+	std::array<XMFLOAT4, 14> offset;
+
+    // Start with 14 uniformly distributed vectors.  We choose the 8 corners of the cube
+	// and the 6 center points along each cube face.  We always alternate the points on 
+	// opposites sides of the cubes.  This way we still get the vectors spread out even
+	// if we choose to use less than 14 samples.
+	
+	// 8 cube corners
+	offset[0] = XMFLOAT4(+1.0f, +1.0f, +1.0f, 0.0f);
+	offset[1] = XMFLOAT4(-1.0f, -1.0f, -1.0f, 0.0f);
+
+	offset[2] = XMFLOAT4(-1.0f, +1.0f, +1.0f, 0.0f);
+	offset[3] = XMFLOAT4(+1.0f, -1.0f, -1.0f, 0.0f);
+
+	offset[4] = XMFLOAT4(+1.0f, +1.0f, -1.0f, 0.0f);
+	offset[5] = XMFLOAT4(-1.0f, -1.0f, +1.0f, 0.0f);
+
+	offset[6] = XMFLOAT4(-1.0f, +1.0f, -1.0f, 0.0f);
+	offset[7] = XMFLOAT4(+1.0f, -1.0f, +1.0f, 0.0f);
+
+	// 6 centers of cube faces
+	offset[8] = XMFLOAT4(-1.0f, 0.0f, 0.0f, 0.0f);
+	offset[9] = XMFLOAT4(+1.0f, 0.0f, 0.0f, 0.0f);
+
+	offset[10] = XMFLOAT4(0.0f, -1.0f, 0.0f, 0.0f);
+	offset[11] = XMFLOAT4(0.0f, +1.0f, 0.0f, 0.0f);
+
+	offset[12] = XMFLOAT4(0.0f, 0.0f, -1.0f, 0.0f);
+	offset[13] = XMFLOAT4(0.0f, 0.0f, +1.0f, 0.0f);
+
+    for(int i = 0; i < 14; ++i)
+	{
+		// Create random lengths in [0.25, 1.0].
+		float s = MathHelper::RandF(0.25f, 1.0f);
+		XMVECTOR v = s * XMVector4Normalize(XMLoadFloat4(&offset[i]));
+		XMStoreFloat4(&offset[i], v);
+	}
+	return offset;
+}
+
+void SetOffsetVectors(XMFLOAT4 target[14])
+{
+	static auto offset = CalcOffsetVectors();
+    std::copy(offset.begin(), offset.end(), 
+		stdext::checked_array_iterator<XMFLOAT4*>(target, 14));
+}
+
+void SSAOApp::ComputeSSAO()
+{
+    // Transform NDC space [-1,+1]^2 to texture space [0,1]^2
+    XMMATRIX T(
+        0.5f, 0.0f, 0.0f, 0.0f,
+        0.0f, -0.5f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.5f, 0.5f, 0.0f, 1.0f);
+
+
+	__declspec(align(16)) struct SSAOConstants
+	{
+		XMFLOAT4X4 gProj;
+		XMFLOAT4X4 gInvProj;
+		XMFLOAT4X4 gProjTex;
+		XMFLOAT4   gOffsetVectors[14];
+
+		// Coordinates given in view space.
+		float    gOcclusionRadius = 0.5f;
+		float    gOcclusionFadeStart = 0.2f;
+		float    gOcclusionFadeEnd = 2.0f;
+		float    gSurfaceEpsilon = 0.05f;
+	};
+	static ConstantBuffer<SSAOConstants> buffer(md3dDevice, 1);
+	SSAOConstants ssaoCB;
+
+    XMStoreFloat4x4(&ssaoCB.gProj, mProj);
+	XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(mProj), mProj);
+    XMStoreFloat4x4(&ssaoCB.gInvProj, invProj);
+    XMStoreFloat4x4(&ssaoCB.gProjTex, mProj * T);
+	SetOffsetVectors(ssaoCB.gOffsetVectors);
+	buffer.UploadData(md3dImmediateContext, 0, ssaoCB);
+
+	std::vector<ID3D11Buffer*> Buffer = { buffer.Resource(0) };
+	md3dImmediateContext->VSSetConstantBuffers(0, Buffer.size(), Buffer.data());
+	md3dImmediateContext->PSSetConstantBuffers(0, Buffer.size(), Buffer.data());
+	std::vector<ID3D11SamplerState*> Sampler = { GetSampler("normalDepth"), GetSampler("randomVec") };
+	md3dImmediateContext->PSSetSamplers(0, Sampler.size(), Sampler.data());
+	std::vector<ID3D11ShaderResourceView*> SRV = { mColors["normalDepth"]->GetSRV(), mColors["randomVec"]->GetSRV() };
+	md3dImmediateContext->PSSetShaderResources(0, SRV.size(), SRV.data());
+
+	md3dImmediateContext->IASetVertexBuffers(0, 0, nullptr, nullptr, nullptr);
+    md3dImmediateContext->IASetIndexBuffer(nullptr, DXGI_FORMAT_UNKNOWN, 0);
+    md3dImmediateContext->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	md3dImmediateContext->DrawInstanced(6, 1, 0, 0);
+}
+
+void SSAOApp::OnMouseDown(WPARAM btnState, int x, int y)
 {
 	mLastMousePos.x = x;
 	mLastMousePos.y = y;
@@ -593,12 +672,12 @@ void AOApp::OnMouseDown(WPARAM btnState, int x, int y)
 	SetCapture(mhMainWnd);
 }
 
-void AOApp::OnMouseUp(WPARAM btnState, int x, int y)
+void SSAOApp::OnMouseUp(WPARAM btnState, int x, int y)
 {
 	ReleaseCapture();
 }
 
-void AOApp::OnMouseMove(WPARAM btnState, int x, int y)
+void SSAOApp::OnMouseMove(WPARAM btnState, int x, int y)
 {
 	if( (btnState & MK_LBUTTON) != 0 )
 	{
@@ -630,13 +709,45 @@ void AOApp::OnMouseMove(WPARAM btnState, int x, int y)
 	mLastMousePos.y = y;
 }
 
-void AOApp::BuildGeometry()
+void SSAOApp::BuildGeometry()
 {
+	BuildScreenQuad();
 	BuildShapeGeometryBuffers();
 	BuildSkullGeometryBuffers();
 }
 
-void AOApp::BuildShapeGeometryBuffers()
+void SSAOApp::BuildScreenQuad()
+{
+	VertexTex v[4];
+
+	v[0].Pos = XMFLOAT3(-1.0f, -1.0f, 0.0f);
+	v[1].Pos = XMFLOAT3(-1.0f, +1.0f, 0.0f);
+	v[2].Pos = XMFLOAT3(+1.0f, +1.0f, 0.0f);
+	v[3].Pos = XMFLOAT3(+1.0f, -1.0f, 0.0f);
+
+	// Store far plane frustum corner indices in Normal.x slot.
+	v[0].Normal = XMFLOAT3(0.0f, 0.0f, 0.0f);
+	v[1].Normal = XMFLOAT3(1.0f, 0.0f, 0.0f);
+	v[2].Normal = XMFLOAT3(2.0f, 0.0f, 0.0f);
+	v[3].Normal = XMFLOAT3(3.0f, 0.0f, 0.0f);
+
+	v[0].Tex = XMFLOAT2(0.0f, 1.0f);
+	v[1].Tex = XMFLOAT2(0.0f, 0.0f);
+	v[2].Tex = XMFLOAT2(1.0f, 0.0f);
+	v[3].Tex = XMFLOAT2(1.0f, 1.0f);
+
+	m_ScreenVertex = d3dHelper::CreateVertexBuffer(md3dDevice, v, sizeof(v));
+
+	USHORT indices[6] = 
+	{
+		0, 1, 2,
+		0, 2, 3
+	};
+
+	m_ScreenIndex = d3dHelper::CreateIndexBuffer(md3dDevice, indices, sizeof(indices));
+}
+
+void SSAOApp::BuildShapeGeometryBuffers()
 {
 	GeometryGenerator::MeshData box;
 	GeometryGenerator::MeshData grid;
@@ -703,7 +814,7 @@ void AOApp::BuildShapeGeometryBuffers()
 	// Extract the vertex elements we are interested in and pack the
 	// vertices of all the meshes into one vertex buffer.
 	//
-	std::vector<VertexTexAO> vertices(totalVertexCount);
+	std::vector<VertexTex> vertices(totalVertexCount);
 
 	UINT k = 0;
 	for(size_t i = 0; i < box.Vertices.size(); ++i, ++k)
@@ -711,7 +822,6 @@ void AOApp::BuildShapeGeometryBuffers()
 		vertices[k].Pos    = box.Vertices[i].Position;
 		vertices[k].Normal = box.Vertices[i].Normal;
 		vertices[k].Tex    = box.Vertices[i].TexC;
-		vertices[k].Ambient = 1.0f;
 	}
 
 	for(size_t i = 0; i < grid.Vertices.size(); ++i, ++k)
@@ -719,7 +829,6 @@ void AOApp::BuildShapeGeometryBuffers()
 		vertices[k].Pos    = grid.Vertices[i].Position;
 		vertices[k].Normal = grid.Vertices[i].Normal;
 		vertices[k].Tex    = grid.Vertices[i].TexC;
-		vertices[k].Ambient = 1.0f;
 	}
 
 	for(size_t i = 0; i < sphere.Vertices.size(); ++i, ++k)
@@ -727,7 +836,6 @@ void AOApp::BuildShapeGeometryBuffers()
 		vertices[k].Pos    = sphere.Vertices[i].Position;
 		vertices[k].Normal = sphere.Vertices[i].Normal;
 		vertices[k].Tex    = sphere.Vertices[i].TexC;
-		vertices[k].Ambient = 1.0f;
 	}
 
 	for(size_t i = 0; i < cylinder.Vertices.size(); ++i, ++k)
@@ -735,7 +843,6 @@ void AOApp::BuildShapeGeometryBuffers()
 		vertices[k].Pos    = cylinder.Vertices[i].Position;
 		vertices[k].Normal = cylinder.Vertices[i].Normal;
 		vertices[k].Tex    = cylinder.Vertices[i].TexC;
-		vertices[k].Ambient = 1.0f;
 	}
 
 	//
@@ -747,7 +854,7 @@ void AOApp::BuildShapeGeometryBuffers()
 	indices.insert(indices.end(), sphere.Indices.begin(), sphere.Indices.end());
 	indices.insert(indices.end(), cylinder.Indices.begin(), cylinder.Indices.end());
 
-	const UINT vbByteSize = sizeof(VertexTexAO)*vertices.size();
+	const UINT vbByteSize = sizeof(VertexTex)*vertices.size();
 	const UINT ibByteSize = sizeof(UINT)*indices.size();
 
 	auto geo = std::make_unique<MeshGeometry>();
@@ -757,7 +864,7 @@ void AOApp::BuildShapeGeometryBuffers()
 	geo->IndexBufferGPU = d3dHelper::CreateIndexBuffer(
 		md3dDevice, indices.data(), ibByteSize);
 
-	geo->VertexByteStride = sizeof(VertexTexAO);
+	geo->VertexByteStride = sizeof(VertexTex);
 	geo->VertexBufferByteSize = vbByteSize;
 	geo->IndexFormat = DXGI_FORMAT_R32_UINT;
 	geo->IndexBufferByteSize = ibByteSize;
@@ -770,7 +877,7 @@ void AOApp::BuildShapeGeometryBuffers()
 	mGeometries[geo->Name] = std::move(geo);
 }
  
-void AOApp::BuildSkullGeometryBuffers()
+void SSAOApp::BuildSkullGeometryBuffers()
 {
 	std::ifstream fin("Models/skull.txt");
 	
@@ -788,12 +895,11 @@ void AOApp::BuildSkullGeometryBuffers()
 	fin >> ignore >> tcount;
 	fin >> ignore >> ignore >> ignore >> ignore;
 	
-	std::vector<VertexAO> vertices(vcount);
+	std::vector<Vertex> vertices(vcount);
 	for(UINT i = 0; i < vcount; ++i)
 	{
 		fin >> vertices[i].Pos.x >> vertices[i].Pos.y >> vertices[i].Pos.z;
 		fin >> vertices[i].Normal.x >> vertices[i].Normal.y >> vertices[i].Normal.z;
-		vertices[i].Ambient = 1.0f;
 	}
 
 	fin >> ignore;
@@ -809,9 +915,7 @@ void AOApp::BuildSkullGeometryBuffers()
 
 	fin.close();
 
-	BuildVertexAmbientOcclusion(vertices, indices);
-
-	const UINT vbByteSize = sizeof(VertexAO)*vertices.size();
+	const UINT vbByteSize = sizeof(Vertex)*vertices.size();
 	const UINT ibByteSize = sizeof(UINT)*indices.size();
 
 	auto geo = std::make_unique<MeshGeometry>();
@@ -821,7 +925,7 @@ void AOApp::BuildSkullGeometryBuffers()
 	geo->IndexBufferGPU = d3dHelper::CreateIndexBuffer(
 		md3dDevice, indices.data(), ibByteSize);
 
-	geo->VertexByteStride = sizeof(VertexAO);
+	geo->VertexByteStride = sizeof(Vertex);
 	geo->VertexBufferByteSize = vbByteSize;
 	geo->IndexFormat = DXGI_FORMAT_R32_UINT;
 	geo->IndexBufferByteSize = ibByteSize;
@@ -835,40 +939,23 @@ void AOApp::BuildSkullGeometryBuffers()
 	mGeometries[geo->Name] = std::move(geo);
 }
 
-void AOApp::LoadTextures()
+void SSAOApp::LoadTextures()
 {
-	auto bricksTex = std::make_unique<Texture>();
-	bricksTex->Name = "bricksTex";
-	bricksTex->Filename = L"../../Textures/bricks.dds";
-	ThrowIfFailed(D3DX11CreateShaderResourceViewFromFile(
-		md3dDevice,
-		bricksTex->Filename.c_str(),
-		0, 0, bricksTex->Resource.GetAddressOf(), 0));
+	auto bricksTex = std::make_shared<TextureResource>(md3dDevice, "bricksTex");
+	bricksTex->LoadTextureFromFile(L"../../Textures/bricks.dds");
 
-	auto stoneTex = std::make_unique<Texture>();
-	stoneTex->Name = "stoneTex";
-	stoneTex->Filename = L"../../Textures/stone.dds";
-	ThrowIfFailed(D3DX11CreateShaderResourceViewFromFile(
-		md3dDevice,
-		stoneTex->Filename.c_str(),
-		0, 0,
-		stoneTex->Resource.GetAddressOf(), 0));
+	auto stoneTex = std::make_shared<TextureResource>(md3dDevice, "stoneTex");
+	stoneTex->LoadTextureFromFile(L"../../Textures/stone.dds");
 
-	auto tileTex = std::make_unique<Texture>();
-	tileTex->Name = "tileTex";
-	tileTex->Filename = L"../../Textures/tile.dds";
-	ThrowIfFailed(D3DX11CreateShaderResourceViewFromFile(
-		md3dDevice,
-		tileTex->Filename.c_str(),
-		0, 0,
-		tileTex->Resource.GetAddressOf(), 0));
+	auto tileTex = std::make_shared<TextureResource>(md3dDevice, "tileTex");
+	tileTex->LoadTextureFromFile(L"../../Textures/tile.dds");
 
-	mTextures[bricksTex->Name] = std::move(bricksTex);
-	mTextures[stoneTex->Name] = std::move(stoneTex);
-	mTextures[tileTex->Name] = std::move(tileTex);
+	mTextures[bricksTex->Name] = bricksTex;
+	mTextures[stoneTex->Name] = stoneTex;
+	mTextures[tileTex->Name] = tileTex;
 }
 
-void AOApp::BuildRenderItems()
+void SSAOApp::BuildRenderItems()
 {
 	auto gridRitem = std::make_unique<RenderItem>();
 	gridRitem->ObjCBIndex = 0;
@@ -980,7 +1067,7 @@ void AOApp::BuildRenderItems()
 	mAllRitems.push_back(std::move(skullRitem));
 }
 
-void AOApp::AddRenderItems(
+void SSAOApp::AddRenderItems(
 	RenderLayer layer,
 	std::string geoname,
 	std::string subname,
@@ -1003,7 +1090,7 @@ void AOApp::AddRenderItems(
 	mAllRitems.push_back(std::move(item));
 }
  
-void AOApp::BuildFrameResources()
+void SSAOApp::BuildFrameResources()
 {
 	mFrameResource = std::make_unique<FrameResource>(md3dDevice, 1, (UINT)mAllRitems.size(), (UINT)mMaterials.size());
 
@@ -1032,12 +1119,20 @@ void AOApp::BuildFrameResources()
 	}
 }
 
-void AOApp::UpdateMainPassCB(float dt)
+void SSAOApp::UpdateMainPassCB(float dt)
 {
+    // Transform NDC space [-1,+1]^2 to texture space [0,1]^2
+    XMMATRIX T(
+        0.5f, 0.0f, 0.0f, 0.0f,
+        0.0f, -0.5f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.5f, 0.5f, 0.0f, 1.0f);
+
 	XMMATRIX viewProj = XMMatrixMultiply(mView, mProj);
 	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(mView), mView);
 	XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(mProj), mProj);
 	XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
+	XMMATRIX viewProjTex = XMMatrixMultiply(viewProj, T);
 
     PassConstants MainPassCB;
 	XMStoreFloat4x4(&MainPassCB.View, mView);
@@ -1046,6 +1141,7 @@ void AOApp::UpdateMainPassCB(float dt)
 	XMStoreFloat4x4(&MainPassCB.InvProj, invProj);
 	XMStoreFloat4x4(&MainPassCB.ViewProj, viewProj);
 	XMStoreFloat4x4(&MainPassCB.InvViewProj, invViewProj);
+	XMStoreFloat4x4(&MainPassCB.ViewProjTex, viewProjTex);
 	MainPassCB.EyePosW = mEyePos;
 	MainPassCB.RenderTargetSize = XMFLOAT2((float)mClientWidth, (float)mClientHeight);
 	MainPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
@@ -1064,7 +1160,7 @@ void AOApp::UpdateMainPassCB(float dt)
 	mFrameResource->PassCB->UploadData(md3dImmediateContext, 0, MainPassCB);
 }
  
-void AOApp::UploadMaterials()
+void SSAOApp::UploadMaterials()
 {
 	for (auto& m : mMaterials) {
 		auto mat = m.second.get();
@@ -1076,7 +1172,7 @@ void AOApp::UploadMaterials()
 	}
 }
 
-void AOApp::UploadObjects()
+void SSAOApp::UploadObjects()
 {
 	for (size_t i = 0; i < mAllRitems.size(); i++) {
 		if (!mAllRitems[i]->bDirty) continue;
@@ -1092,7 +1188,7 @@ void AOApp::UploadObjects()
 	}
 }
 
-std::array<const CD3D11_SAMPLER_DESC, 6> AOApp::GetStaticSamplers()
+std::array<const CD3D11_SAMPLER_DESC, 6> SSAOApp::GetStaticSamplers()
 {
 	// Applications usually only need a handful of samplers.  So just define them all up front
 	// and keep them available as part of the root signature.  
@@ -1145,43 +1241,63 @@ std::array<const CD3D11_SAMPLER_DESC, 6> AOApp::GetStaticSamplers()
 		anisotropicWrap, anisotropicClamp };
 }
 
-void AOApp::BuildSamplerState() 
-{
-	auto state = GetStaticSamplers();
-	for (auto s : state) {
-		ComPtr<ID3D11SamplerState> ss;
-		md3dDevice->CreateSamplerState(&s, ss.GetAddressOf());
-		mSamplerState.push_back(ss);
-	}
-}
-
-void AOApp::CreateBlendState(const std::string& tag, const D3D11_BLEND_DESC & desc)
+void SSAOApp::CreateBlendState(const std::string& tag, const D3D11_BLEND_DESC & desc)
 {
 	ComPtr<ID3D11BlendState> BS;
 	HR(md3dDevice->CreateBlendState(&desc, BS.GetAddressOf()));
 	mBlendState[tag] = BS;
 }
 
-void AOApp::CreateDepthStencilState(const std::string& tag, const D3D11_DEPTH_STENCIL_DESC& desc)
+void SSAOApp::CreateDepthStencilState(const std::string& tag, const D3D11_DEPTH_STENCIL_DESC& desc)
 {
 	ComPtr<ID3D11DepthStencilState> DDS;
 	HR(md3dDevice->CreateDepthStencilState(&desc, DDS.GetAddressOf()));
 	mDepthStencilState[tag] = DDS;
 }
 
-void AOApp::CreateResterizerState(const std::string& tag, const D3D11_RASTERIZER_DESC& desc)
+void SSAOApp::CreateResterizerState(const std::string& tag, const D3D11_RASTERIZER_DESC& desc)
 {
 	ComPtr<ID3D11RasterizerState> RS;
 	HR(md3dDevice->CreateRasterizerState(&desc, RS.GetAddressOf()));
 	mRasterizerState[tag] = RS;
 }
 
-void AOApp::CreatePSO(RenderLayer layer, const PipelineStateDesc& desc)
+void SSAOApp::CreateSampler(std::string name, const CD3D11_SAMPLER_DESC& desc)
+{
+	ComPtr<ID3D11SamplerState> SS;
+	HR(md3dDevice->CreateSamplerState(&desc, SS.GetAddressOf()));
+	m_SamplerState[name] = SS;
+}
+
+RenderTargetPtr SSAOApp::CreateRenderTarget(std::string name)
+{
+    auto renderTarget = std::make_shared<RenderTarget>();
+    mRenderTargets[name] = renderTarget;
+    return renderTarget;
+}
+
+ColorBufferPtr SSAOApp::CreateColorBuffer(std::string name, uint32_t Width, uint32_t Height, uint32_t NumMips, DXGI_FORMAT Format, D3D11_SUBRESOURCE_DATA* Data)
+{
+	auto Buffer = std::make_shared<ColorBuffer>(name);
+	Buffer->Create(Width, Height, NumMips, Format, Data);
+	mColors[name] = Buffer;
+	return Buffer;
+}
+
+DepthBufferPtr SSAOApp::CreateDepthBuffer(std::string name, uint32_t Width, uint32_t Height, DXGI_FORMAT Format)
+{
+	auto Buffer = std::make_shared<DepthBuffer>(name);
+	Buffer->Create(Width, Height, Format);
+	mDepths[name] = Buffer;
+	return Buffer;
+}
+
+void SSAOApp::CreatePSO(const std::string& tag, const PipelineStateDesc& desc)
 {
 	auto pPSO = std::make_unique<PipelineStateObject>();
 	if (mInputLayout.count(desc.IL))
 		pPSO->pIL = mInputLayout[desc.IL].Get();
-	assert(pPSO->pIL != nullptr);
+	// assert(pPSO->pIL != nullptr);
 	if (mVShaders.count(desc.VS))
 		pPSO->pVS = mVShaders[desc.VS].first.Get();
 	assert(pPSO->pVS != nullptr);
@@ -1210,11 +1326,103 @@ void AOApp::CreatePSO(RenderLayer layer, const PipelineStateDesc& desc)
 		assert(mRasterizerState.count(desc.RS));
 		pPSO->pResterizer = mRasterizerState[desc.RS].Get();
 	}
-	mPSOs[(int)layer] = std::move(pPSO);
+
+	if (!desc.RT.empty()) {
+		assert(mRenderTargets.count(desc.RT));
+		pPSO->pRenderTarget = mRenderTargets[desc.RT].get();
+	}
+
+	for (int i = 0; i < NumShader; i++) {
+		// Sampler state
+	}
+
+	mPSOs[tag].swap(pPSO);
 }
 
-void AOApp::BuildPSO()
+void SSAOApp::BuildPSO()
 {
-	CreatePSO(RenderLayer::Textured, { "texture", "texture", "texture" });
-	CreatePSO(RenderLayer::Flat, { "flat", "flat", "flat" });
+	auto pointWrap = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
+	pointWrap.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+	pointWrap.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+	pointWrap.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+	pointWrap.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+	CreateSampler("pointWrap", pointWrap);
+
+	auto normalDepth = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
+	normalDepth.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+	normalDepth.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
+	normalDepth.AddressV = D3D11_TEXTURE_ADDRESS_BORDER;
+	normalDepth.BorderColor[0] = 0.f;
+	normalDepth.BorderColor[1] = 0.f;
+	normalDepth.BorderColor[2] = 0.f;
+	normalDepth.BorderColor[3] = 1e5f;
+	CreateSampler("normalDepth", normalDepth);
+
+	auto randomVec = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
+	randomVec.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+	randomVec.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+	randomVec.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+	CreateSampler("randomVec", randomVec);
+
+	auto linearClamp = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
+	linearClamp.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+	linearClamp.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+	linearClamp.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+	linearClamp.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+	CreateSampler("linearClamp", linearClamp);
+
+	auto anisotropicWrap = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
+	anisotropicWrap.Filter = D3D11_FILTER_ANISOTROPIC;
+	anisotropicWrap.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+	anisotropicWrap.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+	anisotropicWrap.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+	anisotropicWrap.MipLODBias = 0.0f;
+	anisotropicWrap.MaxAnisotropy = 8;
+	anisotropicWrap.BorderColor[1] = 0.0f;
+	anisotropicWrap.BorderColor[2] = 0.0f;
+	CreateSampler("anisotropicWrap", anisotropicWrap);
+
+	CreatePSO("Textured", { "texture", "texture", "texture" });
+	CreatePSO("Flat", { "flat", "flat", "flat" });
+
+	DXGI_SWAP_CHAIN_DESC desc;
+	mSwapChain->GetDesc(&desc);
+	auto BufferDesc = desc.BufferDesc;
+
+	PipelineStateDesc NormalDepthState { "flat", "normalDepth", "normalDepth" };
+	auto NormalDepth = CreateColorBuffer("normalDepth", BufferDesc.Width, BufferDesc.Height, 1, DXGI_FORMAT_R16G16B16A16_FLOAT);
+	auto DepthBuffer = CreateDepthBuffer("depthBuffer", BufferDesc.Width, BufferDesc.Height, DXGI_FORMAT_R24_UNORM_X8_TYPELESS);
+	auto NormalDepthRenderTarget = CreateRenderTarget("normalDepth");
+	NormalDepthRenderTarget->SetColor(Slot::Color0, NormalDepth);
+	NormalDepthRenderTarget->SetDepth(DepthBuffer);
+	NormalDepthState.RT = "normalDepth";
+	CreatePSO("NormalDepth", NormalDepthState);
+
+	auto AmbientBuffer0 = CreateColorBuffer("AmbientBuffer0", BufferDesc.Width, BufferDesc.Height, 1, DXGI_FORMAT_R16_FLOAT);
+	AmbientBuffer0->SetColor({1.0f, 1.0f, 1.0f, 1.0f});
+
+	auto AmbientBuffer1 = CreateColorBuffer("AmbientBuffer1", BufferDesc.Width, BufferDesc.Height, 1, DXGI_FORMAT_R16_FLOAT);
+
+    XMCOLOR initData[256 * 256];
+    for (int i = 0; i < 256; ++i)
+    {
+        for (int j = 0; j < 256; ++j)
+        {
+			// Random vector in [0,1].  We will decompress in shader to [-1,1].
+            XMFLOAT3 v(MathHelper::RandF(), MathHelper::RandF(), MathHelper::RandF());
+            initData[i * 256 + j] = XMCOLOR(v.x, v.y, v.z, 0.0f);
+        }
+    }
+
+    D3D11_SUBRESOURCE_DATA subResourceData = {0};
+    subResourceData.pSysMem = initData;
+    subResourceData.SysMemPitch = 256 * sizeof(XMCOLOR);
+	CreateColorBuffer("randomVec", 256, 256, 1, DXGI_FORMAT_R8G8B8A8_UNORM, &subResourceData);
+
+	PipelineStateDesc ComputeSSAOState { "", "ssao", "ssao" };
+	auto ComputeSSAOTarget = CreateRenderTarget("ssao");
+	ComputeSSAOTarget->SetColor(Slot::Color0, AmbientBuffer0);
+	ComputeSSAOState.RT = "ssao";
+	ComputeSSAOState.BindSampler(VertexShader, { "normalDepth", "randomeVec" });
+	CreatePSO("ComputeSSAO", ComputeSSAOState);
 }

@@ -8,6 +8,7 @@
 
 using Microsoft::WRL::ComPtr;
 
+ID3D11Device* g_Device;
 namespace
 {
 	// This is just used to forward Windows messages from a global window
@@ -66,6 +67,7 @@ D3DApp::~D3DApp()
 
 	ReleaseCOM(md3dImmediateContext);
 	ReleaseCOM(md3dDevice);
+	g_Device = nullptr;
 }
 
 HINSTANCE D3DApp::AppInst()const
@@ -389,6 +391,8 @@ bool D3DApp::InitDirect3D()
 			&md3dDevice,
 			&featureLevel,
 			&md3dImmediateContext);
+
+	g_Device = md3dDevice;
 
 	if( FAILED(hr) )
 	{

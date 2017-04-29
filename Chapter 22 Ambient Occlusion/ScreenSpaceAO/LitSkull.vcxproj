@@ -14,7 +14,7 @@
     <ProjectGuid>{E3A486E2-6917-49A7-BD27-6E7E52C646E9}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>LitSkull</RootNamespace>
-    <ProjectName>AO</ProjectName>
+    <ProjectName>SSAO</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -71,7 +71,6 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>..\..\Common</AdditionalIncludeDirectories>
-      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -87,23 +86,30 @@
     <None Include="FX\LightHelper.fx" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\Common\ColorBuffer.cpp" />
     <ClCompile Include="..\..\Common\d3dApp.cpp" />
     <ClCompile Include="..\..\Common\d3dUtil.cpp" />
+    <ClCompile Include="..\..\Common\DepthBuffer.cpp" />
     <ClCompile Include="..\..\Common\GameTimer.cpp" />
     <ClCompile Include="..\..\Common\GeometryGenerator.cpp" />
     <ClCompile Include="..\..\Common\LightHelper.cpp" />
     <ClCompile Include="..\..\Common\MathHelper.cpp" />
+    <ClCompile Include="..\..\Common\PipelineStateObject.cpp" />
+    <ClCompile Include="..\..\Common\RenderTarget.cpp" />
     <ClCompile Include="..\..\Common\ShaderFactoryDX11.cpp" />
+    <ClCompile Include="..\..\Common\TextureResource.cpp" />
     <ClCompile Include="..\..\Common\Waves.cpp" />
     <ClCompile Include="..\..\Common\xnacollision.cpp" />
     <ClCompile Include="FrameResource.cpp" />
-    <ClCompile Include="AOApp.cpp" />
-    <ClCompile Include="Octree.cpp" />
+    <ClCompile Include="SSAOApp.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\Common\Color.h" />
+    <ClInclude Include="..\..\Common\ColorBuffer.h" />
     <ClInclude Include="..\..\Common\d3dApp.h" />
     <ClInclude Include="..\..\Common\d3dUtil.h" />
     <ClInclude Include="..\..\Common\d3dx11effect.h" />
+    <ClInclude Include="..\..\Common\DepthBuffer.h" />
     <ClInclude Include="..\..\Common\GameTimer.h" />
     <ClInclude Include="..\..\Common\GeometryGenerator.h" />
     <ClInclude Include="..\..\Common\LightHelper.h" />
@@ -111,13 +117,15 @@
     <ClInclude Include="..\..\Common\MeshGeometry.h" />
     <ClInclude Include="..\..\Common\PipelineStateManager.h" />
     <ClInclude Include="..\..\Common\PipelineStateObject.h" />
+    <ClInclude Include="..\..\Common\PixelBuffer.h" />
+    <ClInclude Include="..\..\Common\RenderTarget.h" />
     <ClInclude Include="..\..\Common\ShaderFactoryDX11.h" />
+    <ClInclude Include="..\..\Common\TextureResource.h" />
     <ClInclude Include="..\..\Common\UploadBuffer.h" />
     <ClInclude Include="..\..\Common\Waves.h" />
     <ClInclude Include="..\..\Common\xnacollision.h" />
     <ClInclude Include="ConstantBuffer.h" />
     <ClInclude Include="FrameResource.h" />
-    <ClInclude Include="Octree.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="FX\Basic.fx">
@@ -127,6 +135,22 @@
       <FileType>Document</FileType>
       <EntryPointName Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">PS</EntryPointName>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Pixel</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="FX\NormalDepth.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Vertex</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Vertex</ShaderType>
+      <EntryPointName Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">VS</EntryPointName>
+      <EntryPointName Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">VS</EntryPointName>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">5.0</ShaderModel>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="FX\SSAO.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Pixel</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Pixel</ShaderType>
+      <EntryPointName Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">PS</EntryPointName>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">5.0</ShaderModel>
+      <EntryPointName Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">PS</EntryPointName>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">5.0</ShaderModel>
     </FxCompile>
   </ItemGroup>

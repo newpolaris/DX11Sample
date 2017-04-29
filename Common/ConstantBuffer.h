@@ -11,7 +11,7 @@ public:
     {
         mElementByteSize = sizeof(T);
 
-		for (int i = 0; i < elementCount; i++)
+		for (UINT i = 0; i < elementCount; i++)
 			mUploadBuffer.emplace_back(d3dHelper::CreateConstantBuffer(device, mElementByteSize));
 		mBackup.resize(elementCount);
     }

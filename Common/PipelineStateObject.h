@@ -1,6 +1,16 @@
 #pragma once
 
 #include "d3dUtil.h"
+#include "RenderTarget.h"
+
+enum ShaderType
+{
+	VertexShader = 0,
+	GeometryShader,
+	PixelShader, 
+	ComputeShader,
+	NumShader
+};
 
 struct BlendState
 {
@@ -20,10 +30,17 @@ struct DepthStencilState
 	UINT StencilRef = 0;
 };
 
+struct PipelineBindings
+{
+	enum { MAX_TEXTURE_BINDINGS = 128, MAX_SAMPLER_BINDINGS = 16, MAX_BUFFER_BINDINGS = 128, MAX_CB_BINDINGS = 15 };
+	std::array<std::string, MAX_SAMPLER_BINDINGS> Sampler;
+};
+
 struct PipelineStateDesc
 {
-	PipelineStateDesc(std::string il, std::string vs, std::string ps, std::string gs = "") 
-	 : IL(il), VS(vs), PS(ps), GS(gs) {}
+	PipelineStateDesc(std::string il, std::string vs, std::string ps, std::string gs = "");
+	void BindSampler(int ShaderFlags, const std::vector<std::string>& SamplerList);
+
 	std::string IL;
 	std::string VS;
 	std::string PS;
@@ -36,7 +53,10 @@ struct PipelineStateDesc
 	UINT SampleMask = 0xFFFFFFFF;
 	std::string DSS;
 	UINT StencilRef = 0;
-	std::string RS;
+	std::string RS; // render state
+	std::string RT; // render target
+
+	PipelineBindings bindings[NumShader];
 };
 
 // Pasudo PSO
@@ -51,4 +71,7 @@ struct PipelineStateObject
 	BlendState blend;
 	DepthStencilState depthStencil;
 	ID3D11RasterizerState* pResterizer = nullptr;
+	RenderTarget* pRenderTarget = nullptr;
+	int nSamplerCount = 0;
+	ID3D11SamplerState* pSamplerStates[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT];
 };

@@ -75,4 +75,6 @@ protected:
 	bool mEnable4xMsaa;
 };
 
+extern ID3D11Device* g_Device;
+
 #endif // D3DAPP_H
