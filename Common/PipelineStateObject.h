@@ -2,15 +2,7 @@
 
 #include "d3dUtil.h"
 #include "RenderTarget.h"
-
-enum ShaderType
-{
-	VertexShader = 0,
-	GeometryShader,
-	PixelShader, 
-	ComputeShader,
-	NumShader
-};
+#include "Shader.h"
 
 struct BlendState
 {
@@ -42,11 +34,7 @@ struct PipelineStateDesc
 	void BindSampler(int ShaderFlags, const std::vector<std::string>& SamplerList);
 
 	std::string IL;
-	std::string VS;
-	std::string PS;
-	std::string GS;
-	std::string HS;
-	std::string DS;
+	std::string m_ShaderName[NumShader];
 
 	std::string BS;
 	std::array<FLOAT, 4> BlendFactor = { 1.f, 1.f, 1.f, 1.f };
@@ -63,11 +51,7 @@ struct PipelineStateDesc
 struct PipelineStateObject
 {
 	ID3D11InputLayout* pIL = nullptr;
-	ID3D11VertexShader* pVS = nullptr;
-	ID3D11PixelShader* pPS = nullptr;
-	ID3D11GeometryShader* pGS = nullptr;
-	ID3D11DomainShader* pDS = nullptr;
-	ID3D11HullShader* pHS = nullptr;
+	ShaderPtr m_Shaders[NumShader];
 	BlendState blend;
 	DepthStencilState depthStencil;
 	ID3D11RasterizerState* pResterizer = nullptr;

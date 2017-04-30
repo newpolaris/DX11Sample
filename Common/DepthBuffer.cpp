@@ -36,6 +36,8 @@ void DepthBuffer::Create(uint32_t Width, uint32_t Height, DXGI_FORMAT Format)
 
 	Microsoft::WRL::ComPtr<ID3D11Texture2D> Tex = nullptr;
 	HR(g_Device->CreateTexture2D(&DepthStencilDesc, 0, Tex.GetAddressOf()));
+	Tex->SetPrivateData(WKPDID_D3DDebugObjectName, m_name.size(), m_name.c_str());
+
 	HR(g_Device->CreateDepthStencilView(Tex.Get(), 0, m_DSV.GetAddressOf()));
 	// UNDONE
 	// HR(g_Device->CreateShaderResourceView(Tex.Get(), 0, m_DepthSRV.GetAddressOf()));

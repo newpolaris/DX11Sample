@@ -1,8 +1,12 @@
 #include "PipelineStateObject.h"
 
 PipelineStateDesc::PipelineStateDesc(std::string il, std::string vs, std::string ps, std::string gs)
-	: IL(il), VS(vs), PS(ps), GS(gs) 
-{}
+	: IL(il)
+{
+	m_ShaderName[VertexShader] = vs;
+	m_ShaderName[GeometryShader] = gs;
+	m_ShaderName[PixelShader] = ps;
+}
 
 void PipelineStateDesc::BindSampler(int ShaderFlags, const std::vector<std::string>& SamplerList)
 {

@@ -33,6 +33,7 @@ void ColorBuffer::Create( uint32_t Width, uint32_t Height, uint32_t NumMips, DXG
 
 	Microsoft::WRL::ComPtr<ID3D11Texture2D> Tex = nullptr;
 	HR(g_Device->CreateTexture2D(&TexDesc, Data, Tex.GetAddressOf()));
+	Tex->SetPrivateData(WKPDID_D3DDebugObjectName, m_name.size(), m_name.c_str());
 
 	D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc;
 	srvDesc.Format = Format;

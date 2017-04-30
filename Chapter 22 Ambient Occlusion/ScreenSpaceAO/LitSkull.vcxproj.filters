@@ -71,8 +71,11 @@
     <ClCompile Include="..\..\Common\TextureResource.cpp">
       <Filter>Common</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Common\Shader.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\Common\PipelineStateObject.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>Common</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -142,6 +145,9 @@
     <ClInclude Include="..\..\Common\Color.h">
       <Filter>Common</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Common\Shader.h">
+      <Filter>Common</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="FX\Basic.fx">
@@ -151,6 +157,9 @@
       <Filter>FX</Filter>
     </FxCompile>
     <FxCompile Include="FX\SSAO.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\SSAOBlur.hlsl">
       <Filter>FX</Filter>
     </FxCompile>
   </ItemGroup>

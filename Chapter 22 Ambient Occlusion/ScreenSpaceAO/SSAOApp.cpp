@@ -14,12 +14,12 @@
 #include "LightHelper.h"
 #include "FrameResource.h"
 #include "PipelineStateObject.h"
-#include "ShaderFactoryDX11.h"
 #include "MeshGeometry.h"
 #include "RenderTarget.h"
 #include "TextureResource.h"
 #include "ColorBuffer.h"
 #include "DepthBuffer.h"
+#include "Shader.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "D3DCompiler.lib")
@@ -86,6 +86,14 @@ public:
 	void UpdateScene(float dt);
 	void DrawScene();
 
+	void BlurAmbientMap(UINT nCount);
+
+	void Blur1D(bool bHorzBlur);
+
+	void ShaderCheckResource(ShaderType Type, D3D_SHADER_INPUT_TYPE InputType, UINT Slot, std::string Name);
+
+	void DrawSceneWithSSAO();
+
 	void ComputeSSAO();
 
 	void OnMouseDown(WPARAM btnState, int x, int y);
@@ -95,7 +103,7 @@ public:
 
 private:
 	void LoadTextures();
-	void CompileShader(ShaderType shaderType, std::string name, D3D_SHADER_MACRO * defines, const std::wstring & filename, const std::string & function, const std::string & model);
+	void CompileShader(ShaderType Type, std::string Name, D3D_SHADER_MACRO * Defines, const std::wstring & Filename, const std::string & Function, const std::string & Model);
 	void CreatePSO(const std::string & tag, const PipelineStateDesc & desc);
 
 	RenderTargetPtr CreateRenderTarget(std::string name);
@@ -126,30 +134,17 @@ private:
 	void UploadMaterials();
 	void UploadObjects();
 	void UpdateCamera(float dt);
+	void BuildStaticSamplers();
 	void DrawRenderItems(RenderLayer layer);
 	void DrawItems();
 	void ApplyPipelineState(const std::string& tag);
 	ID3D11SamplerState * GetSampler(const std::string & name);
 	void UpdateMainPassCB(float dt);
 
-	ID3DBlob* GetVertexShaderBlob(std::string name);
-	ID3D11VertexShader* GetVertexShader(std::string name);
-	ID3DBlob* GetPixelShaderBlob(std::string name);
-	ID3D11PixelShader* GetPixelShader(std::string name);
-	ID3DBlob* GetComputeShaderBlob(std::string name);
-	ID3D11ComputeShader* GetComputeShader(std::string name);
-
-	std::array<const CD3D11_SAMPLER_DESC, 6> GetStaticSamplers();
+	ID3DBlob* GetShaderBlob(ShaderType Type, std::string Name);
 
 private:
-	using VShader = std::pair<ComPtr<ID3D11VertexShader>, ComPtr<ID3DBlob>>;
-	using PShader = std::pair<ComPtr<ID3D11PixelShader>, ComPtr<ID3DBlob>>;
-	using GShader = std::pair<ComPtr<ID3D11GeometryShader>, ComPtr<ID3DBlob>>;
-	using CShader = std::pair<ComPtr<ID3D11ComputeShader>, ComPtr<ID3DBlob>>;
-	std::unordered_map<std::string, VShader> mVShaders;
-	std::unordered_map<std::string, GShader> mGShaders;
-	std::unordered_map<std::string, PShader> mPShaders;
-	std::unordered_map<std::string, CShader> mCShaders;
+	std::unordered_map<std::string, ShaderPtr> m_Shaders[NumShader];
 	std::unordered_map<std::string, ComPtr<ID3D11BlendState>> mBlendState;
 	std::unordered_map<std::string, ComPtr<ID3D11DepthStencilState>> mDepthStencilState;
 	std::unordered_map<std::string, ComPtr<ID3D11InputLayout>> mInputLayout;
@@ -175,6 +170,8 @@ private:
 	std::vector<std::pair<int, std::string>> mRenderLayerConstantBuffer[Count];
 	std::unordered_map<std::string, std::unique_ptr<PipelineStateObject>> mPSOs;
 	std::unordered_map<std::string, ComPtr<ID3D11Buffer>> mConstantBuffers;
+
+	PipelineStateObject* m_pCurrentPSO = nullptr;
 
 	// Define transformations from local spaces to world space.
 	XMFLOAT4X4 mSphereWorld[10];
@@ -205,7 +202,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 
 	if (!theApp.Init())
 		return 0;
-	theApp.Run();
+	return theApp.Run();
 }
  
 
@@ -249,6 +246,7 @@ bool SSAOApp::Init()
 		return false;
 
 	LoadTextures();
+	BuildStaticSamplers();
 	BuildFX();
 	BuildVertexLayout();
 	BuildGeometry();
@@ -287,67 +285,26 @@ void SSAOApp::BuildFX()
 	CompileShader(PixelShader, "normalDepth", nullptr, L"FX/NormalDepth.hlsl", "PS", "ps_5_0");
 	CompileShader(VertexShader, "ssao", nullptr, L"FX/SSAO.hlsl", "VS", "vs_5_0");
 	CompileShader(PixelShader, "ssao", nullptr, L"FX/SSAO.hlsl", "PS", "ps_5_0");
+	CompileShader(VertexShader, "blur", nullptr, L"FX/SSAOBlur.hlsl", "VS", "vs_5_0");
+	CompileShader(PixelShader, "blur", nullptr, L"FX/SSAOBlur.hlsl", "PS", "ps_5_0");
 }
 
 void SSAOApp::CompileShader(
-	ShaderType shaderType,
-	std::string name, 
-	D3D_SHADER_MACRO* defines, 
-	const std::wstring & filename,
-	const std::string& function,
-	const std::string& model)
+	ShaderType Type,
+	std::string Name, 
+	D3D_SHADER_MACRO* Defines, 
+	const std::wstring & Filename,
+	const std::string& Function,
+	const std::string& Model)
 {
-	auto blob = ShaderFactoryDX11::CompileShader(filename, defines, function, model);
-	switch (shaderType) {
-	case VertexShader:
-		{
-			ComPtr<ID3D11VertexShader> shader;
-			md3dDevice->CreateVertexShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, shader.GetAddressOf());
-			mVShaders.insert({ name, { shader, blob } });
-			break;
-		}
-	case PixelShader:
-		{
-			ComPtr<ID3D11PixelShader> shader;
-			md3dDevice->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, shader.GetAddressOf());
-			mPShaders.insert({ name, { shader, blob } });
-			break;
-		}
-	case GeometryShader:
-		{
-			ComPtr<ID3D11GeometryShader> shader;
-			md3dDevice->CreateGeometryShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, shader.GetAddressOf());
-			mGShaders.insert({ name, { shader, blob } });
-			break;
-		}
-	case ComputeShader:
-		{
-			ComPtr<ID3D11ComputeShader> shader;
-			md3dDevice->CreateComputeShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, shader.GetAddressOf());
-			mCShaders.insert({ name, { shader, blob } });
-			break;
-		}
-	}
+	auto Shader = std::make_shared<ShaderDX11>(Type, Name, Defines, Filename, Function, Model);
+	m_Shaders[Type].insert_or_assign(Name, Shader);
 }
 
-ID3DBlob* SSAOApp::GetVertexShaderBlob(std::string name)
+ID3DBlob* SSAOApp::GetShaderBlob(ShaderType Type, std::string Name)
 {
-	return mVShaders[name].second.Get();
-}
-
-ID3D11VertexShader* SSAOApp::GetVertexShader(std::string name)
-{
-	return mVShaders[name].first.Get();
-}
-
-ID3D11PixelShader * SSAOApp::GetPixelShader(std::string name)
-{
-	return mPShaders[name].first.Get();
-}
-
-ID3D11ComputeShader* SSAOApp::GetComputeShader(std::string name)
-{
-	return mCShaders[name].first.Get();
+	assert(m_Shaders[Type].count( Name ));
+	return m_Shaders[Type][Name]->m_CompiledShader.Get();
 }
 
 void SSAOApp::BuildVertexLayout()
@@ -363,8 +320,8 @@ void SSAOApp::BuildVertexLayout()
 	HR(md3dDevice->CreateInputLayout(
 		ILTex.data(),
 		ILTex.size(),
-		GetVertexShaderBlob("texture")->GetBufferPointer(),
-		GetVertexShaderBlob("texture")->GetBufferSize(),
+		GetShaderBlob(VertexShader, "texture")->GetBufferPointer(),
+		GetShaderBlob(VertexShader, "texture")->GetBufferSize(),
 		pLayoutTex.GetAddressOf()));
 	mInputLayout["texture"] = pLayoutTex;
 
@@ -378,8 +335,8 @@ void SSAOApp::BuildVertexLayout()
 	HR(md3dDevice->CreateInputLayout(
 		IL.data(),
 		IL.size(),
-		GetVertexShaderBlob("flat")->GetBufferPointer(),
-		GetVertexShaderBlob("flat")->GetBufferSize(),
+		GetShaderBlob(VertexShader, "flat")->GetBufferPointer(),
+		GetShaderBlob(VertexShader, "flat")->GetBufferSize(),
 		pLayout.GetAddressOf()));
 	mInputLayout["flat"] = pLayout;
 }
@@ -511,9 +468,29 @@ void SSAOApp::ApplyPipelineState(const std::string& tag)
     md3dImmediateContext->CSSetShaderResources(0, ARRAYSIZE(pSRVs), pSRVs);
 
 	auto pPSO = mPSOs[tag].get();
-	md3dImmediateContext->VSSetShader(pPSO->pVS, nullptr, 0);
-	md3dImmediateContext->PSSetShader(pPSO->pPS, nullptr, 0);
-	md3dImmediateContext->GSSetShader(pPSO->pGS, nullptr, 0);
+
+	for (int i = 0; i < NumShader; i++)
+	{
+		if (!pPSO->m_Shaders[i]) 
+			continue;
+
+		auto Type = static_cast<ShaderType>(i);
+		switch (Type) {
+		case VertexShader:
+			{
+				auto pVS = reinterpret_cast<ID3D11VertexShader*>(pPSO->m_Shaders[VertexShader]->m_Shader.Get());
+				md3dImmediateContext->VSSetShader(pVS, nullptr, 0);
+				break;
+			}
+		case PixelShader:
+			{
+				auto pPS = reinterpret_cast<ID3D11PixelShader*>(pPSO->m_Shaders[PixelShader]->m_Shader.Get());
+				md3dImmediateContext->PSSetShader(pPS, nullptr, 0);
+				break;
+			}
+		}
+	}
+
 	md3dImmediateContext->IASetInputLayout(pPSO->pIL);
 	md3dImmediateContext->OMSetBlendState(
 		pPSO->blend.pBlendState,
@@ -525,6 +502,8 @@ void SSAOApp::ApplyPipelineState(const std::string& tag)
 	md3dImmediateContext->RSSetState(pPSO->pResterizer);
 	if (pPSO->pRenderTarget)
 		pPSO->pRenderTarget->Bind();
+
+	m_pCurrentPSO = pPSO;
 }
 
 ID3D11SamplerState* SSAOApp::GetSampler(const std::string& name)
@@ -542,9 +521,83 @@ void SSAOApp::DrawScene()
 	ApplyPipelineState("ComputeSSAO");
 	ComputeSSAO();
 
-	// ApplyPipelineState("BlurSSAO");
-    // BlurAmbientMap(cmdList, currFrame, blurCount);
+	ApplyPipelineState("BlurSSAO");
+	BlurAmbientMap(3);
 
+	DrawSceneWithSSAO();
+	HR(mSwapChain->Present(0, 0));
+}
+
+void SSAOApp::BlurAmbientMap(UINT nCount)
+{
+	std::vector<ID3D11SamplerState*> Sampler = { GetSampler("randomVec") };
+	md3dImmediateContext->PSSetSamplers(0, Sampler.size(), Sampler.data());
+
+    for(UINT i = 0; i < nCount; ++i)
+    {
+        Blur1D(true);
+        Blur1D(false);
+    }
+}
+
+void SSAOApp::Blur1D(bool bHorzBlur)
+{
+	__declspec(align(16)) struct BlurConstants
+	{
+		float gTexelWidth;
+		float gTexelHeight;
+		bool gHorizontalBlur;
+	};
+	static ConstantBuffer<BlurConstants> buffer(md3dDevice, 1);
+	BlurConstants blurCB;
+	blurCB.gTexelHeight = 1.0f / mClientHeight;
+	blurCB.gTexelWidth = 1.0f / mClientWidth;
+	blurCB.gHorizontalBlur = bHorzBlur;
+	buffer.UploadData(md3dImmediateContext, 0, blurCB);
+
+	std::vector<ID3D11Buffer*> Buffer = { buffer.Resource(0) };
+	md3dImmediateContext->VSSetConstantBuffers(0, Buffer.size(), Buffer.data());
+	md3dImmediateContext->PSSetConstantBuffers(0, Buffer.size(), Buffer.data());
+
+	std::string srv = "AmbientBuffer0";
+	std::string rtv = "AmbientBuffer1";
+
+	if (!bHorzBlur)
+		std::swap(rtv, srv);
+
+	ShaderCheckResource(PixelShader, D3D_SIT_TEXTURE, 0, "gInputImage");
+	ShaderCheckResource(PixelShader, D3D_SIT_TEXTURE, 1, "gNormalDepthMap");
+
+	std::vector<ID3D11ShaderResourceView*> SRV = { nullptr, nullptr };
+	std::vector<ID3D11RenderTargetView*> RTV = { nullptr };
+	md3dImmediateContext->PSSetShaderResources(0, SRV.size(), SRV.data());
+	md3dImmediateContext->OMSetRenderTargets(RTV.size(), RTV.data(), nullptr);
+
+	SRV = { mColors[srv]->GetSRV(), mColors["normalDepth"]->GetSRV() };
+	RTV = { mColors[rtv]->GetRTV() };
+
+	// BindShaderResource(0, mColors[srv]->GetSRV());
+	md3dImmediateContext->PSSetShaderResources(0, SRV.size(), SRV.data());
+	md3dImmediateContext->OMSetRenderTargets(RTV.size(), RTV.data(), nullptr);
+	mColors[rtv]->Clear();
+
+	UINT stride = sizeof(VertexTex);
+    UINT offset = 0;
+	std::vector<ID3D11Buffer*> VB = { m_ScreenVertex.Get() };
+    md3dImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	md3dImmediateContext->IASetVertexBuffers(0, 1, VB.data(), &stride, &offset);
+	md3dImmediateContext->IASetIndexBuffer(m_ScreenIndex.Get(), DXGI_FORMAT_R16_UINT, 0);
+	md3dImmediateContext->DrawIndexed(6, 0, 0);
+}
+
+void SSAOApp::ShaderCheckResource(ShaderType Type, D3D_SHADER_INPUT_TYPE InputType, UINT Slot, std::string Name)
+{
+	assert(m_pCurrentPSO->m_Shaders[Type]);
+	assert(m_pCurrentPSO->m_Shaders[Type]->ShaderCheckResource(Type, InputType, Slot, Name));
+}
+
+void SSAOApp::DrawSceneWithSSAO()
+{
 	m_RenderTargetBuffer->Clear();
 	mDepths["depthBuffer"]->Clear();
 
@@ -552,6 +605,9 @@ void SSAOApp::DrawScene()
 	md3dImmediateContext->PSSetSamplers(0, Sampler.size(), Sampler.data());
 
 	std::vector<ID3D11ShaderResourceView*> SRV = { mColors["AmbientBuffer0"]->GetSRV() };
+
+	ShaderCheckResource(PixelShader, D3D_SIT_TEXTURE, 0, "gInputImage");
+	ShaderCheckResource(PixelShader, D3D_SIT_TEXTURE, 1, "gNormalDepthMap");
 
 	ApplyPipelineState("Flat");
 	md3dImmediateContext->PSSetShaderResources(1, SRV.size(), SRV.data());
@@ -561,7 +617,6 @@ void SSAOApp::DrawScene()
 	md3dImmediateContext->PSSetShaderResources(1, SRV.size(), SRV.data());
 	DrawRenderItems(RenderLayer::Textured);
 
-	HR(mSwapChain->Present(0, 0));
 }
 
 std::array<XMFLOAT4, 14> CalcOffsetVectors() 
@@ -1184,7 +1239,7 @@ void SSAOApp::UploadObjects()
 	}
 }
 
-std::array<const CD3D11_SAMPLER_DESC, 6> SSAOApp::GetStaticSamplers()
+void SSAOApp::BuildStaticSamplers()
 {
 	// Applications usually only need a handful of samplers.  So just define them all up front
 	// and keep them available as part of the root signature.  
@@ -1194,24 +1249,28 @@ std::array<const CD3D11_SAMPLER_DESC, 6> SSAOApp::GetStaticSamplers()
 	pointWrap.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
 	pointWrap.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
 	pointWrap.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+	CreateSampler("pointWrap", pointWrap);
 
 	auto pointClamp = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
 	pointClamp.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
 	pointClamp.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
 	pointClamp.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
 	pointClamp.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+	CreateSampler("pointClamp", pointClamp);
 
 	auto linearWrap = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
 	linearWrap.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
 	linearWrap.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
 	linearWrap.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
 	linearWrap.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+	CreateSampler("linearWrap", linearWrap);
 
 	auto linearClamp = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
 	linearClamp.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
 	linearClamp.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
 	linearClamp.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
 	linearClamp.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+	CreateSampler("linearClamp", linearClamp);
 
 	auto anisotropicWrap = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
 	anisotropicWrap.Filter = D3D11_FILTER_ANISOTROPIC;
@@ -1222,6 +1281,7 @@ std::array<const CD3D11_SAMPLER_DESC, 6> SSAOApp::GetStaticSamplers()
 	anisotropicWrap.MaxAnisotropy = 8;
 	anisotropicWrap.BorderColor[1] = 0.0f;
 	anisotropicWrap.BorderColor[2] = 0.0f;
+	CreateSampler("anisotropicWrap", anisotropicWrap);
 
 	auto anisotropicClamp = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
 	anisotropicClamp.Filter = D3D11_FILTER_ANISOTROPIC;
@@ -1230,11 +1290,7 @@ std::array<const CD3D11_SAMPLER_DESC, 6> SSAOApp::GetStaticSamplers()
 	anisotropicClamp.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
 	anisotropicClamp.MipLODBias = 0.0f;
 	anisotropicClamp.MaxAnisotropy = 8;
-
-	return { 
-		pointWrap, pointClamp,
-		linearWrap, linearClamp, 
-		anisotropicWrap, anisotropicClamp };
+	CreateSampler("anisotropicClamp", anisotropicClamp);
 }
 
 void SSAOApp::CreateBlendState(const std::string& tag, const D3D11_BLEND_DESC & desc)
@@ -1291,20 +1347,20 @@ DepthBufferPtr SSAOApp::CreateDepthBuffer(std::string name, uint32_t Width, uint
 void SSAOApp::CreatePSO(const std::string& tag, const PipelineStateDesc& desc)
 {
 	auto pPSO = std::make_unique<PipelineStateObject>();
-	if (mInputLayout.count(desc.IL))
+	if (mInputLayout.count(desc.IL)) {
 		pPSO->pIL = mInputLayout[desc.IL].Get();
-	// assert(pPSO->pIL != nullptr);
-	if (mVShaders.count(desc.VS))
-		pPSO->pVS = mVShaders[desc.VS].first.Get();
-	assert(pPSO->pVS != nullptr);
-	if (mPShaders.count(desc.PS))
-		pPSO->pPS = mPShaders[desc.PS].first.Get();
-	assert(pPSO->pPS != nullptr);
-
-	if (!desc.GS.empty()) {
-		assert(mGShaders.count(desc.GS));
-		pPSO->pGS = mGShaders[desc.GS].first.Get();
+		assert(pPSO->pIL != nullptr);
 	}
+
+	for (int i = 0; i < NumShader; i++)
+	{
+		auto Type = static_cast<ShaderType>(i);
+		if (desc.m_ShaderName[Type].empty()) 
+			continue;
+		pPSO->m_Shaders[Type] = m_Shaders[Type][desc.m_ShaderName[Type]];
+		assert(Type == pPSO->m_Shaders[Type]->m_ShaderType);
+	}
+
 	if (!desc.BS.empty()) {
 		assert(mBlendState.count(desc.BS));
 		pPSO->blend.pBlendState = mBlendState[desc.BS].Get();
@@ -1337,13 +1393,6 @@ void SSAOApp::CreatePSO(const std::string& tag, const PipelineStateDesc& desc)
 
 void SSAOApp::BuildPSO()
 {
-	auto pointWrap = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
-	pointWrap.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
-	pointWrap.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
-	pointWrap.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
-	pointWrap.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
-	CreateSampler("pointWrap", pointWrap);
-
 	auto normalDepth = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
 	normalDepth.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
 	normalDepth.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
@@ -1360,24 +1409,6 @@ void SSAOApp::BuildPSO()
 	randomVec.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
 	CreateSampler("randomVec", randomVec);
 
-	auto linearClamp = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
-	linearClamp.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-	linearClamp.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
-	linearClamp.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
-	linearClamp.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-	CreateSampler("linearClamp", linearClamp);
-
-	auto anisotropicWrap = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
-	anisotropicWrap.Filter = D3D11_FILTER_ANISOTROPIC;
-	anisotropicWrap.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
-	anisotropicWrap.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
-	anisotropicWrap.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
-	anisotropicWrap.MipLODBias = 0.0f;
-	anisotropicWrap.MaxAnisotropy = 8;
-	anisotropicWrap.BorderColor[1] = 0.0f;
-	anisotropicWrap.BorderColor[2] = 0.0f;
-	CreateSampler("anisotropicWrap", anisotropicWrap);
-
 	DXGI_SWAP_CHAIN_DESC desc;
 	mSwapChain->GetDesc(&desc);
 	auto BufferDesc = desc.BufferDesc;
@@ -1392,9 +1423,10 @@ void SSAOApp::BuildPSO()
 	CreatePSO("NormalDepth", NormalDepthState);
 
 	auto AmbientBuffer0 = CreateColorBuffer("AmbientBuffer0", BufferDesc.Width, BufferDesc.Height, 1, DXGI_FORMAT_R16_FLOAT);
-	AmbientBuffer0->SetColor({1.0f, 1.0f, 1.0f, 1.0f});
+	AmbientBuffer0->SetColor({0.0f, 0.0f, 0.0f, 1.0f});
 
 	auto AmbientBuffer1 = CreateColorBuffer("AmbientBuffer1", BufferDesc.Width, BufferDesc.Height, 1, DXGI_FORMAT_R16_FLOAT);
+	AmbientBuffer1->SetColor({0.0f, 0.0f, 0.0f, 1.0f});
 
     XMCOLOR initData[256 * 256];
     for (int i = 0; i < 256; ++i)
@@ -1433,4 +1465,8 @@ void SSAOApp::BuildPSO()
 	PipelineStateDesc FlatState { "flat", "flat", "flat" };
 	FlatState.RT = "draw";
 	CreatePSO("Flat", FlatState);
+
+	PipelineStateDesc BlurState { "texture", "blur", "blur" };
+	CreatePSO("BlurSSAO", BlurState);
+
 }
