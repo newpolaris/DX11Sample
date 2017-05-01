@@ -151,7 +151,7 @@ private:
 	std::unordered_map<std::string, ComPtr<ID3D11RasterizerState>> mRasterizerState;
 	std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
 	std::unordered_map<std::string, std::unique_ptr<MaterialFresnel>> mMaterials;
-	std::unordered_map<std::string, std::shared_ptr<TextureResource>> mTextures;
+	std::unordered_map<std::string, TextureResourcePtr> mTextures;
 	std::unordered_map<std::string, ColorBufferPtr> mColors;
 	std::unordered_map<std::string, DepthBufferPtr> mDepths;
 	std::unordered_map<std::string, RenderTargetPtr> mRenderTargets;
@@ -234,6 +234,7 @@ SSAOApp::SSAOApp(HINSTANCE hInstance)
 		XMStoreFloat4x4(&mSphereWorld[i*2+0], XMMatrixTranslation(-5.0f, 3.5f, -10.0f + i*5.0f));
 		XMStoreFloat4x4(&mSphereWorld[i*2+1], XMMatrixTranslation(+5.0f, 3.5f, -10.0f + i*5.0f));
 	}
+	m_RenderTargetBuffer = std::make_shared<ColorBuffer>();
 }
 
 SSAOApp::~SSAOApp()
@@ -261,6 +262,8 @@ bool SSAOApp::Init()
 
 void SSAOApp::OnResize()
 {
+	m_RenderTargetBuffer->Destroy();
+
 	D3DApp::OnResize();
 
 	mProj = XMMatrixPerspectiveFovLH(0.25f*MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
@@ -270,9 +273,20 @@ void SSAOApp::OnResize()
 	ComPtr<ID3D11Texture2D> RenderTargetBuffer;
 
 	HR(mSwapChain->GetBuffer(0, IID_PPV_ARGS(&RenderTargetBuffer)));
-	m_RenderTargetBuffer = ColorBuffer::CreateFromSwapChain("Screen", RenderTargetBuffer);
+	m_RenderTargetBuffer->CreateFromSwapChain("Screen", RenderTargetBuffer);
 	m_RenderTargetBuffer->SetColor(ConvertColor(Colors::LightSteelBlue));
+
+	// TextureResize
+	if (mColors.count("normalDepth"))
+		mColors["normalDepth"]->Resize(mClientWidth, mClientHeight);
+	if (mColors.count("AmbientBuffer0"))
+		mColors["AmbientBuffer0"]->Resize(mClientWidth, mClientHeight);
+	if (mColors.count("AmbientBuffer1"))
+		mColors["AmbientBuffer1"]->Resize(mClientWidth, mClientHeight);
+	if (mDepths.count("depthBuffer"))
+		mDepths["depthBuffer"]->Resize(mClientWidth, mClientHeight);
 }
+
 
 void SSAOApp::BuildFX()
 {
@@ -1328,11 +1342,11 @@ RenderTargetPtr SSAOApp::CreateRenderTarget(std::string name)
     return renderTarget;
 }
 
-ColorBufferPtr SSAOApp::CreateColorBuffer(std::string name, uint32_t Width, uint32_t Height, uint32_t NumMips, DXGI_FORMAT Format, D3D11_SUBRESOURCE_DATA* Data)
+ColorBufferPtr SSAOApp::CreateColorBuffer(std::string Name, uint32_t Width, uint32_t Height, uint32_t NumMips, DXGI_FORMAT Format, D3D11_SUBRESOURCE_DATA* Data)
 {
-	auto Buffer = std::make_shared<ColorBuffer>(name);
-	Buffer->Create(Width, Height, NumMips, Format, Data);
-	mColors[name] = Buffer;
+	auto Buffer = std::make_shared<ColorBuffer>();
+	Buffer->Create(Name, Width, Height, NumMips, Format, Data);
+	mColors[Name] = Buffer;
 	return Buffer;
 }
 
@@ -1409,23 +1423,19 @@ void SSAOApp::BuildPSO()
 	randomVec.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
 	CreateSampler("randomVec", randomVec);
 
-	DXGI_SWAP_CHAIN_DESC desc;
-	mSwapChain->GetDesc(&desc);
-	auto BufferDesc = desc.BufferDesc;
-
 	PipelineStateDesc NormalDepthState { "flat", "normalDepth", "normalDepth" };
-	auto NormalDepth = CreateColorBuffer("normalDepth", BufferDesc.Width, BufferDesc.Height, 1, DXGI_FORMAT_R16G16B16A16_FLOAT);
-	auto DepthBuffer = CreateDepthBuffer("depthBuffer", BufferDesc.Width, BufferDesc.Height, DXGI_FORMAT_R24_UNORM_X8_TYPELESS);
+	auto NormalDepth = CreateColorBuffer("normalDepth", mClientWidth, mClientHeight, 1, DXGI_FORMAT_R16G16B16A16_FLOAT);
+	auto DepthBuffer = CreateDepthBuffer("depthBuffer", mClientWidth, mClientHeight, DXGI_FORMAT_R24_UNORM_X8_TYPELESS);
 	auto NormalDepthRenderTarget = CreateRenderTarget("normalDepth");
 	NormalDepthRenderTarget->SetColor(Slot::Color0, NormalDepth);
 	NormalDepthRenderTarget->SetDepth(DepthBuffer);
 	NormalDepthState.RT = "normalDepth";
 	CreatePSO("NormalDepth", NormalDepthState);
 
-	auto AmbientBuffer0 = CreateColorBuffer("AmbientBuffer0", BufferDesc.Width, BufferDesc.Height, 1, DXGI_FORMAT_R16_FLOAT);
+	auto AmbientBuffer0 = CreateColorBuffer("AmbientBuffer0", mClientWidth, mClientHeight, 1, DXGI_FORMAT_R16_FLOAT);
 	AmbientBuffer0->SetColor({0.0f, 0.0f, 0.0f, 1.0f});
 
-	auto AmbientBuffer1 = CreateColorBuffer("AmbientBuffer1", BufferDesc.Width, BufferDesc.Height, 1, DXGI_FORMAT_R16_FLOAT);
+	auto AmbientBuffer1 = CreateColorBuffer("AmbientBuffer1", mClientWidth, mClientHeight, 1, DXGI_FORMAT_R16_FLOAT);
 	AmbientBuffer1->SetColor({0.0f, 0.0f, 0.0f, 1.0f});
 
     XMCOLOR initData[256 * 256];

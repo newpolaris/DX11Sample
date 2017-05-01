@@ -31,6 +31,7 @@ public:
 	// implement specific application requirements.
 
 	virtual bool Init();
+	virtual bool InitBuffers();
 	virtual void OnResize(); 
 	virtual void UpdateScene(float dt)=0;
 	virtual void DrawScene()=0; 

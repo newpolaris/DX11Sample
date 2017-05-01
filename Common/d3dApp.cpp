@@ -130,6 +130,12 @@ bool D3DApp::Init()
 
 	return true;
 }
+
+bool D3DApp::InitBuffers()
+{
+	OnResize();
+	return true;
+}
  
 void D3DApp::OnResize()
 {
@@ -463,8 +469,7 @@ bool D3DApp::InitDirect3D()
 	// The remaining steps that need to be carried out for d3d creation
 	// also need to be executed every time the window is resized.  So
 	// just call the OnResize method here to avoid code duplication.
-	
-	OnResize();
+	InitBuffers();
 
 	return true;
 }

@@ -1,22 +1,17 @@
 #include "ColorBuffer.h"
 #include "d3dApp.h"
 
-ColorBufferPtr ColorBuffer::CreateFromSwapChain(const std::string & Name, Microsoft::WRL::ComPtr<ID3D11Texture2D> Texture)
-{
-	auto Buffer = std::make_shared<ColorBuffer>(Name);
-	HR(g_Device->CreateRenderTargetView(Texture.Get(), nullptr, Buffer->m_RTV.ReleaseAndGetAddressOf()));
+using Microsoft::WRL::ComPtr;
 
-	return Buffer;
+ColorBuffer::ColorBuffer()
+	: m_ClearColor(0.0f, 0.0f, 0.0f, 0.0f), m_NumMipMaps(0), m_FragmentCount(1), m_SampleCount(1) 
+{
 }
 
-ColorBuffer::ColorBuffer(const std::string & Name)
-	: m_name(Name), m_ClearColor(0.0f, 0.0f, 0.0f, 0.0f), m_NumMipMaps(0), m_FragmentCount(1), m_SampleCount(1) 
+void ColorBuffer::Create(std::string Name, uint32_t Width, uint32_t Height, uint32_t NumMips, DXGI_FORMAT Format, D3D11_SUBRESOURCE_DATA * Data)
 {
-	g_Device->GetImmediateContext(&m_pContext);
-}
+	m_name = Name;
 
-void ColorBuffer::Create( uint32_t Width, uint32_t Height, uint32_t NumMips, DXGI_FORMAT Format, D3D11_SUBRESOURCE_DATA* Data)
-{
 	D3D11_TEXTURE2D_DESC TexDesc;
 	TexDesc.Width     = Width;
 	TexDesc.Height    = Height;
@@ -31,28 +26,53 @@ void ColorBuffer::Create( uint32_t Width, uint32_t Height, uint32_t NumMips, DXG
     TexDesc.CPUAccessFlags = 0;
     TexDesc.MiscFlags      = 0;
 
-	Microsoft::WRL::ComPtr<ID3D11Texture2D> Tex = nullptr;
-	HR(g_Device->CreateTexture2D(&TexDesc, Data, Tex.GetAddressOf()));
-	Tex->SetPrivateData(WKPDID_D3DDebugObjectName, m_name.size(), m_name.c_str());
+	HR(g_Device->CreateTexture2D(&TexDesc, Data, m_Tex.GetAddressOf()));
+	m_Tex->SetPrivateData(WKPDID_D3DDebugObjectName, m_name.size(), m_name.c_str());
 
 	D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc;
 	srvDesc.Format = Format;
 	srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
 	srvDesc.Texture2D.MostDetailedMip = 0;
 	srvDesc.Texture2D.MipLevels = 1;
-	HR(g_Device->CreateShaderResourceView(Tex.Get(), &srvDesc, m_SRV.ReleaseAndGetAddressOf()));
+	HR(g_Device->CreateShaderResourceView(m_Tex.Get(), &srvDesc, m_SRV.ReleaseAndGetAddressOf()));
 
 	D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc;
 	uavDesc.Format = Format;
 	uavDesc.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2D;
 	uavDesc.Texture2D.MipSlice = 0;
-	HR(g_Device->CreateUnorderedAccessView(Tex.Get(), &uavDesc, m_UAV.ReleaseAndGetAddressOf()));
+	HR(g_Device->CreateUnorderedAccessView(m_Tex.Get(), &uavDesc, m_UAV.ReleaseAndGetAddressOf()));
+	HR(g_Device->CreateRenderTargetView(m_Tex.Get(), nullptr, m_RTV.ReleaseAndGetAddressOf()));
+}
 
-	HR(g_Device->CreateRenderTargetView(Tex.Get(), nullptr, m_RTV.ReleaseAndGetAddressOf()));
+void ColorBuffer::CreateFromSwapChain(std::string Name, Microsoft::WRL::ComPtr<ID3D11Texture2D> Texture)
+{
+	m_name = Name;
+	HR(g_Device->CreateRenderTargetView(Texture.Get(), nullptr, m_RTV.ReleaseAndGetAddressOf()));
+}
+
+void ColorBuffer::Resize(UINT Width, UINT Height)
+{
+	assert(m_Tex);
+
+	D3D11_TEXTURE2D_DESC Desc;
+	m_Tex->GetDesc(&Desc);
+
+	Create(m_name, Width, Height, Desc.MipLevels, Desc.Format);
 }
 
 void ColorBuffer::Clear()
 {
 	FLOAT clearColor[4] = { m_ClearColor.r, m_ClearColor.g, m_ClearColor.b, m_ClearColor.a };
-	m_pContext->ClearRenderTargetView(m_RTV.Get(), clearColor);
+
+	ComPtr<ID3D11DeviceContext> pContext;
+	g_Device->GetImmediateContext(&pContext);
+	assert(m_RTV.Get());
+	pContext->ClearRenderTargetView(m_RTV.Get(), clearColor);
+}
+
+void ColorBuffer::Destroy()
+{
+	m_SRV = nullptr;
+	m_RTV = nullptr;
+	m_UAV = nullptr;
 }

@@ -14,5 +14,4 @@ void TextureResource::LoadTextureFromFile(std::wstring filename)
 		filename.c_str(),
 		0, 0,
 		SRV.GetAddressOf(), 0));
-
 }
