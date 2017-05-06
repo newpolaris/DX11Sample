@@ -1,5 +1,15 @@
 #pragma once
 
+//--------------------------------------------------------------------------------
+// This file is a portion of the Hieroglyph 3 Rendering Engine.  It is distributed
+// under the MIT License, available in the root of this distribution and 
+// at the following URL:
+//
+// http://www.opensource.org/licenses/mit-license.php
+//
+// Copyright (c) Jason Zink 
+//--------------------------------------------------------------------------------
+
 #include "d3dUtil.h"
 
 enum ShaderType
@@ -67,7 +77,7 @@ struct ShaderDX11
 	D3D11_SHADER_DESC m_ShaderDescription;
 	std::vector<D3D11_SIGNATURE_PARAMETER_DESC> m_InputSignatureParameters;
 	std::vector<D3D11_SIGNATURE_PARAMETER_DESC> m_OutputSignatureParameters;
-	std::vector<D3D11_SHADER_BUFFER_DESC> m_BufferDescription;
+	std::vector<ConstantBufferLayout> m_BufferDescription;
 	std::vector<ShaderInputBindDesc> m_ResourceDescrition;
 };
 

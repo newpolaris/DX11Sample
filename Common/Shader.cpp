@@ -96,9 +96,30 @@ void ShaderDX11::FillReflection()
 	for ( UINT i = 0; i < desc.ConstantBuffers; i++ )
 	{
 		ID3D11ShaderReflectionConstantBuffer* pConstBuffer = pReflector->GetConstantBufferByIndex( i );
+		ConstantBufferLayout BufferLayout;
+
 		D3D11_SHADER_BUFFER_DESC bufferDesc;
 		pConstBuffer->GetDesc( &bufferDesc );
-		m_BufferDescription.push_back(bufferDesc);
+		BufferLayout.Description = bufferDesc;
+
+		// Load the description of each variable for use later on when binding a buffer
+		for (UINT j = 0; j < BufferLayout.Description.Variables; j++)
+		{
+			// Get the variable description and store it
+			ID3D11ShaderReflectionVariable* pVariable = pConstBuffer->GetVariableByIndex(j);
+			D3D11_SHADER_VARIABLE_DESC var_desc;
+			pVariable->GetDesc(&var_desc);
+
+			BufferLayout.Variables.push_back(var_desc);
+
+			// Get the variable type description and store it
+			ID3D11ShaderReflectionType* pType = pVariable->GetType();
+			D3D11_SHADER_TYPE_DESC type_desc;
+			pType->GetDesc(&type_desc);
+
+			BufferLayout.Types.push_back(type_desc);
+		}
+		m_BufferDescription.push_back(BufferLayout);
 	}
 
 	for ( UINT i = 0; i < desc.BoundResources; i++ )

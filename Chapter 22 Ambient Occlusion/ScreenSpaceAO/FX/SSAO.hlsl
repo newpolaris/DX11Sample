@@ -42,11 +42,12 @@ VertexOut VS(uint vid : SV_VertexID)
 
     vout.TexC = gTexCoords[vid];
 
-    // Quad covering screen in NDC space.
+    // Quad covering screen in NDC space ( near plain)
     vout.PosH = float4(2.0f*vout.TexC.x - 1.0f, 1.0f - 2.0f*vout.TexC.y, 0.0f, 1.0f);
  
     // Transform quad corners to view space near plane.
     float4 ph = mul(vout.PosH, gInvProj);
+	// divide w to convert view space (after invProj z = 1, w = 1/z)
     vout.PosV = ph.xyz / ph.w;
 
     return vout;

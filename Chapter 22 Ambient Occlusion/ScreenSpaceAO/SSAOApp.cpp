@@ -106,6 +106,8 @@ private:
 	void CompileShader(ShaderType Type, std::string Name, D3D_SHADER_MACRO * Defines, const std::wstring & Filename, const std::string & Function, const std::string & Model);
 	void CreatePSO(const std::string & tag, const PipelineStateDesc & desc);
 
+	void BuildViewDependentResource();
+
 	RenderTargetPtr CreateRenderTarget(std::string name);
 	ColorBufferPtr CreateColorBuffer(std::string name, uint32_t Width, uint32_t Height, uint32_t NumMips, DXGI_FORMAT Format, D3D11_SUBRESOURCE_DATA* Data = nullptr);
 	DepthBufferPtr CreateDepthBuffer(std::string name, uint32_t Width, uint32_t Height, DXGI_FORMAT Format);
@@ -171,6 +173,7 @@ private:
 	std::unordered_map<std::string, std::unique_ptr<PipelineStateObject>> mPSOs;
 	std::unordered_map<std::string, ComPtr<ID3D11Buffer>> mConstantBuffers;
 
+	D3D11_VIEWPORT m_HalfViewport;
 	PipelineStateObject* m_pCurrentPSO = nullptr;
 
 	// Define transformations from local spaces to world space.
@@ -252,6 +255,7 @@ bool SSAOApp::Init()
 	BuildVertexLayout();
 	BuildGeometry();
 	BuildMaterials();
+	BuildViewDependentResource();
 	BuildPSO();
 	BuildRenderItems();
 	BuildFrameResources();
@@ -276,15 +280,25 @@ void SSAOApp::OnResize()
 	m_RenderTargetBuffer->CreateFromSwapChain("Screen", RenderTargetBuffer);
 	m_RenderTargetBuffer->SetColor(ConvertColor(Colors::LightSteelBlue));
 
+	auto HalfWidth = static_cast<uint32_t>(mClientWidth * 0.5);
+	auto HalfHeight = static_cast<uint32_t>(mClientWidth * 0.5);
+
 	// TextureResize
 	if (mColors.count("normalDepth"))
 		mColors["normalDepth"]->Resize(mClientWidth, mClientHeight);
 	if (mColors.count("AmbientBuffer0"))
-		mColors["AmbientBuffer0"]->Resize(mClientWidth, mClientHeight);
+		mColors["AmbientBuffer0"]->Resize(HalfWidth, HalfHeight);
 	if (mColors.count("AmbientBuffer1"))
-		mColors["AmbientBuffer1"]->Resize(mClientWidth, mClientHeight);
+		mColors["AmbientBuffer1"]->Resize(HalfWidth, HalfHeight);
 	if (mDepths.count("depthBuffer"))
 		mDepths["depthBuffer"]->Resize(mClientWidth, mClientHeight);
+
+	m_HalfViewport.TopLeftX = 0;
+	m_HalfViewport.TopLeftY = 0;
+	m_HalfViewport.Width    = HalfWidth;
+	m_HalfViewport.Height    = HalfHeight;
+	m_HalfViewport.MinDepth = 0.0f;
+	m_HalfViewport.MaxDepth = 1.0f;
 }
 
 
@@ -532,12 +546,13 @@ void SSAOApp::DrawScene()
 	DrawRenderItems(RenderLayer::Flat);
 	DrawRenderItems(RenderLayer::Textured);
 
+	md3dImmediateContext->RSSetViewports(1, &m_HalfViewport);
 	ApplyPipelineState("ComputeSSAO");
 	ComputeSSAO();
-
 	ApplyPipelineState("BlurSSAO");
 	BlurAmbientMap(3);
 
+	md3dImmediateContext->RSSetViewports(1, &mScreenViewport);
 	DrawSceneWithSSAO();
 	HR(mSwapChain->Present(0, 0));
 }
@@ -560,12 +575,12 @@ void SSAOApp::Blur1D(bool bHorzBlur)
 	{
 		float gTexelWidth;
 		float gTexelHeight;
-		bool gHorizontalBlur;
+		int   gHorizontalBlur;
 	};
 	static ConstantBuffer<BlurConstants> buffer(md3dDevice, 1);
 	BlurConstants blurCB;
-	blurCB.gTexelHeight = 1.0f / mClientHeight;
-	blurCB.gTexelWidth = 1.0f / mClientWidth;
+	blurCB.gTexelHeight = 1.0f / (mClientHeight*0.5);
+	blurCB.gTexelWidth = 1.0f / (mClientWidth*0.5);
 	blurCB.gHorizontalBlur = bHorzBlur;
 	buffer.UploadData(md3dImmediateContext, 0, blurCB);
 
@@ -1405,6 +1420,18 @@ void SSAOApp::CreatePSO(const std::string& tag, const PipelineStateDesc& desc)
 	mPSOs[tag].swap(pPSO);
 }
 
+void SSAOApp::BuildViewDependentResource()
+{
+	auto HalfWidth = static_cast<uint32_t>(mClientWidth * 0.5);
+	auto HalfHegiht = static_cast<uint32_t>(mClientWidth * 0.5);
+
+	auto AmbientBuffer0 = CreateColorBuffer("AmbientBuffer0", HalfWidth, HalfHegiht, 1, DXGI_FORMAT_R16_FLOAT);
+	AmbientBuffer0->SetColor({0.0f, 0.0f, 0.0f, 1.0f});
+
+	auto AmbientBuffer1 = CreateColorBuffer("AmbientBuffer1", HalfWidth, HalfHegiht, 1, DXGI_FORMAT_R16_FLOAT);
+	AmbientBuffer1->SetColor({0.0f, 0.0f, 0.0f, 1.0f});
+}
+
 void SSAOApp::BuildPSO()
 {
 	auto normalDepth = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
@@ -1432,12 +1459,6 @@ void SSAOApp::BuildPSO()
 	NormalDepthState.RT = "normalDepth";
 	CreatePSO("NormalDepth", NormalDepthState);
 
-	auto AmbientBuffer0 = CreateColorBuffer("AmbientBuffer0", mClientWidth, mClientHeight, 1, DXGI_FORMAT_R16_FLOAT);
-	AmbientBuffer0->SetColor({0.0f, 0.0f, 0.0f, 1.0f});
-
-	auto AmbientBuffer1 = CreateColorBuffer("AmbientBuffer1", mClientWidth, mClientHeight, 1, DXGI_FORMAT_R16_FLOAT);
-	AmbientBuffer1->SetColor({0.0f, 0.0f, 0.0f, 1.0f});
-
     XMCOLOR initData[256 * 256];
     for (int i = 0; i < 256; ++i)
     {
@@ -1456,7 +1477,7 @@ void SSAOApp::BuildPSO()
 
 	PipelineStateDesc ComputeSSAOState { "", "ssao", "ssao" };
 	auto ComputeSSAOTarget = CreateRenderTarget("ssao");
-	ComputeSSAOTarget->SetColor(Slot::Color0, AmbientBuffer0);
+	ComputeSSAOTarget->SetColor(Slot::Color0, mColors["AmbientBuffer0"]);
 	ComputeSSAOState.RT = "ssao";
 	ComputeSSAOState.BindSampler(VertexShader, { "normalDepth", "randomeVec" });
 	CreatePSO("ComputeSSAO", ComputeSSAOState);
