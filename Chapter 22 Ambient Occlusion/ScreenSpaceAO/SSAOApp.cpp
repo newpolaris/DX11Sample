@@ -20,6 +20,8 @@
 #include "ColorBuffer.h"
 #include "DepthBuffer.h"
 #include "Shader.h"
+#include "Scene3D.h"
+#include "SceneBinFile.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "D3DCompiler.lib")
@@ -36,9 +38,46 @@
 
 using Microsoft::WRL::ComPtr;
 
+// Captures from the NVIDIA Medusa demo (Linear depth and back-buffer colors)
+BinFileDescriptor g_BinFileDesc[] = 
+{
+    { L"Medusa 1",   L"..\\..\\Media\\SSAO11\\Medusa_Warrior.bin" },   // 720p
+    { L"Medusa 2",   L"..\\..\\Media\\SSAO11\\Medusa_Snake.bin" },     // 720p
+    { L"Medusa 3",   L"..\\..\\Media\\SSAO11\\Medusa_Monster.bin" },   // 1080p
+};
+
+MeshDescriptor g_MeshDesc[] =
+{
+    {L"AT-AT",     L"..\\..\\Media\\AT-AT.sdkmesh",   SCENE_USE_GROUND_PLANE, SCENE_NO_SHADING,  SCENE_USE_ORBITAL_CAMERA, 0.05f },
+    {L"Leaves",    L"..\\..\\Media\\leaves.sdkmesh",  SCENE_NO_GROUND_PLANE,  SCENE_USE_SHADING, SCENE_USE_ORBITAL_CAMERA, 0.05f },
+    {L"Sibenik",   L"..\\..\\Media\\sibenik.sdkmesh", SCENE_NO_GROUND_PLANE,  SCENE_USE_SHADING,  SCENE_USE_FIRST_PERSON_CAMERA, 0.005f },
+    {L"Knight",    L"..\\..\\Media\\goof_knight.sdkmesh",   SCENE_NO_GROUND_PLANE,  SCENE_USE_SHADING,  SCENE_USE_FIRST_PERSON_CAMERA, 0.05f },
+    {L"Test",      L"..\\..\\Media\\FenceSsaoTestScene.sdkmesh",   SCENE_NO_GROUND_PLANE,  SCENE_USE_SHADING,  SCENE_USE_FIRST_PERSON_CAMERA, 0.05f },
+};
+
+
 Color ConvertColor(const XMVECTORF32& vec) {
 	return Color(vec.f[0], vec.f[1], vec.f[2], vec.f[3]);
 }
+
+#define NUM_BIN_FILES   (sizeof(g_BinFileDesc)  / sizeof(g_BinFileDesc[0]))
+#define NUM_MESHES      (sizeof(g_MeshDesc)     / sizeof(g_MeshDesc[0]))
+
+SceneMesh g_SceneMeshes[NUM_MESHES];
+SceneBinFile g_SceneBinFiles[NUM_BIN_FILES];
+SceneRenderer g_pSceneRenderer;
+
+struct Scene
+{
+    Scene()
+        : pMesh(NULL)
+        , pBinFile(NULL)
+    {
+    }
+    SceneMesh *pMesh;
+    SceneBinFile *pBinFile;
+};
+Scene g_Scenes[NUM_MESHES+NUM_BIN_FILES];
 
 // Lightweight structure stores parameters to draw a shape.  This will
 // vary from app-to-app.
@@ -117,7 +156,7 @@ private:
 	void BuildFX();
 	void BuildVertexLayout();
 	void BuildMaterials();
-	void BuildGeometry();
+	BOOL BuildGeometry();
 	void BuildScreenQuad();
 	void BuildShapeGeometryBuffers();
 	void BuildSkullGeometryBuffers();
@@ -141,6 +180,7 @@ private:
 	void DrawItems();
 	void ApplyPipelineState(const std::string& tag);
 	ID3D11SamplerState * GetSampler(const std::string & name);
+	void FrameRender(double fTime, float fElapsedTime, void * pUserContext);
 	void UpdateMainPassCB(float dt);
 
 	ID3DBlob* GetShaderBlob(ShaderType Type, std::string Name);
@@ -299,6 +339,41 @@ void SSAOApp::OnResize()
 	m_HalfViewport.Height    = HalfHeight;
 	m_HalfViewport.MinDepth = 0.0f;
 	m_HalfViewport.MaxDepth = 1.0f;
+
+	g_pSceneRenderer.OnDestroyDevice();
+
+    // Load Scene3D.fx
+    g_pSceneRenderer.OnCreateDevice(md3dDevice);
+
+    // Load the scene bin files
+    int SceneId = 0;
+    for (int i = 0; i < NUM_BIN_FILES; ++i)
+    {
+        if (FAILED(g_SceneBinFiles[i].OnCreateDevice(g_BinFileDesc[i])))
+        {
+            MessageBox(NULL, L"Unable to load data file", L"ERROR", MB_OK|MB_SETFOREGROUND|MB_TOPMOST);
+            PostQuitMessage(0);
+        }
+        g_Scenes[SceneId++].pBinFile = &g_SceneBinFiles[i];
+    }
+
+    // Load the sdkmesh data files
+    for (int i = 0; i < NUM_MESHES; ++i)
+    {
+        if (FAILED(g_SceneMeshes[i].OnCreateDevice(md3dDevice, g_MeshDesc[i])))
+        {
+            MessageBox(NULL, L"Unable to create mesh", L"ERROR", MB_OK|MB_SETFOREGROUND|MB_TOPMOST);
+            PostQuitMessage(0);
+        }
+        g_Scenes[SceneId++].pMesh = &g_SceneMeshes[i];
+    }
+
+
+    // Resize the bin-file data
+    for (int i = 0; i < NUM_BIN_FILES; ++i)
+    {
+        g_SceneBinFiles[i].OnResizedSwapChain(md3dDevice, mClientWidth, mClientHeight);
+    }
 }
 
 
@@ -540,19 +615,134 @@ ID3D11SamplerState* SSAOApp::GetSampler(const std::string& name)
 	 return m_SamplerState[name].Get();
 }
 
+void SSAOApp::FrameRender(double fTime, float fElapsedTime, void* pUserContext)
+{
+	int g_CurrentSceneId = 5;
+    SceneMesh *pMesh = g_Scenes[g_CurrentSceneId].pMesh;
+    SceneBinFile *pBinFile = g_Scenes[g_CurrentSceneId].pBinFile;
+
+    md3dImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    // md3dImmediateContext->RSSetViewports(1, &g_Viewport);
+
+	m_RenderTargetBuffer->Clear();
+	mDepths["depthBuffer"]->Clear();
+
+    //--------------------------------------------------------------------------------------
+    // Render colors and depths
+    //--------------------------------------------------------------------------------------
+    if (pMesh)
+    {
+        // Clear render target and depth buffer
+        float BgColor[4] = { 1.0f, 1.0f, 1.0f };
+
+		ID3D11RenderTargetView* ColorRTV = { m_RenderTargetBuffer->GetRTV() };
+        // Render color and depth with the Scene3D class
+        md3dImmediateContext->OMSetRenderTargets(1, &ColorRTV, mDepths["depthBuffer"]->GetDSV());
+		bool g_UseOrbitalCamera = false;
+        if (g_UseOrbitalCamera)
+        {
+			/*
+            g_pSceneRenderer.OnFrameRender(g_OrbitalCamera.GetWorldMatrix(),
+                                           g_OrbitalCamera.GetViewMatrix(),
+                                           g_OrbitalCamera.GetProjMatrix(),
+                                           pMesh);
+			*/
+        }
+        else
+        {
+            D3DXMATRIX IdentityMatrix;
+            D3DXMatrixIdentity(&IdentityMatrix);
+            g_pSceneRenderer.OnFrameRender(&IdentityMatrix,
+				(D3DXMATRIX*)&mView,
+				(D3DXMATRIX*)&mProj,
+				pMesh);
+        }
+
+		/*
+        if (g_MSAADesc[g_MSAACurrentSettings].samples > 1)
+        {
+            pd3dImmediateContext->ResolveSubresource(g_NonMSAAColorTexture, 0, g_ColorTexture, 0, DXGI_FORMAT_R8G8B8A8_UNORM);
+        }
+        else
+        {
+            pd3dImmediateContext->CopyResource(g_NonMSAAColorTexture, g_ColorTexture);
+        }
+		*/
+    }
+
+    //--------------------------------------------------------------------------------------
+    // Render the SSAO to the backbuffer
+    //--------------------------------------------------------------------------------------
+
+	ID3D11RenderTargetView* ColorRTV = { m_RenderTargetBuffer->GetRTV() };
+	// Render color and depth with the Scene3D class
+	md3dImmediateContext->OMSetRenderTargets(1, &ColorRTV, mDepths["depthBuffer"]->GetDSV());
+	/*
+    ID3D11RenderTargetView* pBackBufferRTV = DXUTGetD3D11RenderTargetView(); // does not addref
+    pd3dImmediateContext->OMSetRenderTargets(1, &pBackBufferRTV, NULL);
+	*/
+	bool g_ShowColors = true;
+    if (g_ShowColors)
+    {
+        // if "Show Colors" is enabled in the GUI, copy the non-MSAA colors to the back buffer
+        if (pBinFile)
+        {
+            g_pSceneRenderer.CopyColors(pBinFile->GetColorSRV());
+        }
+        else
+        {
+            // g_pSceneRenderer.CopyColors(g_NonMSAAColorSRV);
+        }
+    }
+	bool g_ShowAO = false;
+    if (!g_ShowColors && !g_ShowAO)
+    {
+        // If both "Show Colors" and "Show AO" are disabled in the GUI
+        float BgColor[4] = { 0.0f, 0.0f, 0.0f };
+        // md3dImmediateContext->ClearRenderTargetView(pBackBufferRTV, BgColor);
+    }
+
+	/*
+    if (g_ShowAO)
+    {
+        NVSDK_Status status;
+        if (pMesh)
+        {
+            status = NVSDK_D3D11_SetHardwareDepthsForAO(pd3dDevice, g_DepthStencilTexture, ZNEAR, ZFAR, g_Viewport.MinDepth, g_Viewport.MaxDepth, pMesh->GetSceneScale());
+            assert(status == NVSDK_OK);
+        }
+        else
+        {
+            status = NVSDK_D3D11_SetViewSpaceDepthsForAO(pd3dDevice, pBinFile->GetLinearDepthTexture(), pBinFile->GetSceneScale());
+            assert(status == NVSDK_OK);
+        }
+
+        g_AOParams.useBlending = g_ShowColors;
+        status = NVSDK_D3D11_SetAOParameters(&g_AOParams);
+        assert(status == NVSDK_OK);
+
+        status = NVSDK_D3D11_RenderAO(pd3dDevice, pd3dImmediateContext, FOVY, pBackBufferRTV, NULL, &RenderTimes);
+        assert(status == NVSDK_OK);
+
+        status = NVSDK_D3D11_GetAllocatedVideoMemoryBytes(&NumBytes);
+        assert(status == NVSDK_OK);
+    }
+
+    //--------------------------------------------------------------------------------------
+    // Render the GUI
+    //--------------------------------------------------------------------------------------
+    if (g_DrawUI)
+    {
+        RenderText(RenderTimes, NumBytes);
+        g_HUD.OnRender(fElapsedTime); 
+    }
+	*/
+}
+
 void SSAOApp::DrawScene()
 {
-	ApplyPipelineState("NormalDepth");
-	DrawRenderItems(RenderLayer::Flat);
-	DrawRenderItems(RenderLayer::Textured);
-
-	md3dImmediateContext->RSSetViewports(1, &m_HalfViewport);
-	ApplyPipelineState("ComputeSSAO");
-	ComputeSSAO();
-	ApplyPipelineState("BlurSSAO");
-	BlurAmbientMap(3);
-
 	md3dImmediateContext->RSSetViewports(1, &mScreenViewport);
+
 	DrawSceneWithSSAO();
 	HR(mSwapChain->Present(0, 0));
 }
@@ -627,25 +817,7 @@ void SSAOApp::ShaderCheckResource(ShaderType Type, D3D_SHADER_INPUT_TYPE InputTy
 
 void SSAOApp::DrawSceneWithSSAO()
 {
-	m_RenderTargetBuffer->Clear();
-	mDepths["depthBuffer"]->Clear();
-
-	std::vector<ID3D11SamplerState*> Sampler = { GetSampler("anisotropicWrap") };
-	md3dImmediateContext->PSSetSamplers(0, Sampler.size(), Sampler.data());
-
-	std::vector<ID3D11ShaderResourceView*> SRV = { mColors["AmbientBuffer0"]->GetSRV() };
-
-	ShaderCheckResource(PixelShader, D3D_SIT_TEXTURE, 0, "gInputImage");
-	ShaderCheckResource(PixelShader, D3D_SIT_TEXTURE, 1, "gNormalDepthMap");
-
-	ApplyPipelineState("Flat");
-	md3dImmediateContext->PSSetShaderResources(1, SRV.size(), SRV.data());
-	DrawRenderItems(RenderLayer::Flat);
-
-	ApplyPipelineState("Textured");
-	md3dImmediateContext->PSSetShaderResources(1, SRV.size(), SRV.data());
-	DrawRenderItems(RenderLayer::Textured);
-
+	FrameRender(0, 0, nullptr);
 }
 
 std::array<XMFLOAT4, 14> CalcOffsetVectors() 
@@ -789,11 +961,12 @@ void SSAOApp::OnMouseMove(WPARAM btnState, int x, int y)
 	mLastMousePos.y = y;
 }
 
-void SSAOApp::BuildGeometry()
+BOOL SSAOApp::BuildGeometry()
 {
 	BuildScreenQuad();
 	BuildShapeGeometryBuffers();
 	BuildSkullGeometryBuffers();
+	return TRUE;
 }
 
 void SSAOApp::BuildScreenQuad()

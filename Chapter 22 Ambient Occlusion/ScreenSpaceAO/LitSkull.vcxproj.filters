@@ -19,6 +19,9 @@
     <Filter Include="FX">
       <UniqueIdentifier>{8afab071-2cea-4cf7-a9bd-4aa321b593e3}</UniqueIdentifier>
     </Filter>
+    <Filter Include="DXUT">
+      <UniqueIdentifier>{9090b3a1-669a-4e40-adb6-58c56a1240e8}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <None Include="FX\LightHelper.fx">
@@ -76,6 +79,15 @@
     </ClCompile>
     <ClCompile Include="..\..\Common\PipelineStateObject.cpp">
       <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\DXUT\Optional\SDKmesh.cpp">
+      <Filter>DXUT</Filter>
+    </ClCompile>
+    <ClCompile Include="Scene3D.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\DXUT\MeshUTWraper.cpp">
+      <Filter>DXUT</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -147,6 +159,15 @@
     </ClInclude>
     <ClInclude Include="..\..\Common\Shader.h">
       <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DXUT\Optional\SDKMesh.h">
+      <Filter>DXUT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DXUT\MeshUTWraper.h">
+      <Filter>DXUT</Filter>
+    </ClInclude>
+    <ClInclude Include="scenebinfile.h">
+      <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
