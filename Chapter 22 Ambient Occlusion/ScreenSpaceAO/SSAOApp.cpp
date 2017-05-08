@@ -67,6 +67,8 @@ SceneMesh g_SceneMeshes[NUM_MESHES];
 SceneBinFile g_SceneBinFiles[NUM_BIN_FILES];
 SceneRenderer g_pSceneRenderer;
 
+static int g_CurrentSceneId = 4;
+
 struct Scene
 {
     Scene()
@@ -320,8 +322,8 @@ void SSAOApp::OnResize()
 	m_RenderTargetBuffer->CreateFromSwapChain("Screen", RenderTargetBuffer);
 	m_RenderTargetBuffer->SetColor(ConvertColor(Colors::LightSteelBlue));
 
-	auto HalfWidth = static_cast<uint32_t>(mClientWidth * 0.5);
-	auto HalfHeight = static_cast<uint32_t>(mClientWidth * 0.5);
+	auto HalfWidth = static_cast<uint32_t>(mClientWidth * 1.0);
+	auto HalfHeight = static_cast<uint32_t>(mClientHeight * 1.0);
 
 	// TextureResize
 	if (mColors.count("normalDepth"))
@@ -390,6 +392,8 @@ void SSAOApp::BuildFX()
 	CompileShader(PixelShader, "ssao", nullptr, L"FX/SSAO.hlsl", "PS", "ps_5_0");
 	CompileShader(VertexShader, "blur", nullptr, L"FX/SSAOBlur.hlsl", "VS", "vs_5_0");
 	CompileShader(PixelShader, "blur", nullptr, L"FX/SSAOBlur.hlsl", "PS", "ps_5_0");
+	CompileShader(VertexShader, "composite", nullptr, L"FX/Composite.hlsl", "VS", "vs_5_0");
+	CompileShader(PixelShader, "composite", nullptr, L"FX/Composite.hlsl", "PS", "ps_5_0");
 }
 
 void SSAOApp::CompileShader(
@@ -570,6 +574,7 @@ void SSAOApp::ApplyPipelineState(const std::string& tag)
     md3dImmediateContext->PSSetShaderResources(0, ARRAYSIZE(pSRVs), pSRVs);
     md3dImmediateContext->CSSetShaderResources(0, ARRAYSIZE(pSRVs), pSRVs);
 
+	assert(mPSOs.count(tag));
 	auto pPSO = mPSOs[tag].get();
 
 	for (int i = 0; i < NumShader; i++)
@@ -617,15 +622,14 @@ ID3D11SamplerState* SSAOApp::GetSampler(const std::string& name)
 
 void SSAOApp::FrameRender(double fTime, float fElapsedTime, void* pUserContext)
 {
-	int g_CurrentSceneId = 5;
     SceneMesh *pMesh = g_Scenes[g_CurrentSceneId].pMesh;
     SceneBinFile *pBinFile = g_Scenes[g_CurrentSceneId].pBinFile;
 
     md3dImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     // md3dImmediateContext->RSSetViewports(1, &g_Viewport);
 
-	m_RenderTargetBuffer->Clear();
-	mDepths["depthBuffer"]->Clear();
+	// m_RenderTargetBuffer->Clear();
+	// mDepths["depthBuffer"]->Clear();
 
     //--------------------------------------------------------------------------------------
     // Render colors and depths
@@ -635,9 +639,9 @@ void SSAOApp::FrameRender(double fTime, float fElapsedTime, void* pUserContext)
         // Clear render target and depth buffer
         float BgColor[4] = { 1.0f, 1.0f, 1.0f };
 
-		ID3D11RenderTargetView* ColorRTV = { m_RenderTargetBuffer->GetRTV() };
+		// ID3D11RenderTargetView* ColorRTV = { m_RenderTargetBuffer->GetRTV() };
         // Render color and depth with the Scene3D class
-        md3dImmediateContext->OMSetRenderTargets(1, &ColorRTV, mDepths["depthBuffer"]->GetDSV());
+        // md3dImmediateContext->OMSetRenderTargets(1, &ColorRTV, mDepths["depthBuffer"]->GetDSV());
 		bool g_UseOrbitalCamera = false;
         if (g_UseOrbitalCamera)
         {
@@ -676,7 +680,7 @@ void SSAOApp::FrameRender(double fTime, float fElapsedTime, void* pUserContext)
 
 	ID3D11RenderTargetView* ColorRTV = { m_RenderTargetBuffer->GetRTV() };
 	// Render color and depth with the Scene3D class
-	md3dImmediateContext->OMSetRenderTargets(1, &ColorRTV, mDepths["depthBuffer"]->GetDSV());
+	// md3dImmediateContext->OMSetRenderTargets(1, &ColorRTV, mDepths["depthBuffer"]->GetDSV());
 	/*
     ID3D11RenderTargetView* pBackBufferRTV = DXUTGetD3D11RenderTargetView(); // does not addref
     pd3dImmediateContext->OMSetRenderTargets(1, &pBackBufferRTV, NULL);
@@ -743,7 +747,28 @@ void SSAOApp::DrawScene()
 {
 	md3dImmediateContext->RSSetViewports(1, &mScreenViewport);
 
+#if 1
+	ApplyPipelineState("NormalDepth");
+	FrameRender(0, 0, nullptr);
+
+	ApplyPipelineState("ComputeSSAO");
+	ComputeSSAO();
+
+	ApplyPipelineState("BlurSSAO");
+	BlurAmbientMap(3);
+
+	ApplyPipelineState("Composite");
 	DrawSceneWithSSAO();
+
+#else
+	m_RenderTargetBuffer->Clear();
+	mDepths["depthBuffer"]->Clear();
+	ApplyPipelineState("NormalDepth");
+	ID3D11RenderTargetView* ColorRTV = { m_RenderTargetBuffer->GetRTV() };
+	// Render color and depth with the Scene3D class
+	md3dImmediateContext->OMSetRenderTargets(1, &ColorRTV, mDepths["depthBuffer"]->GetDSV());
+	FrameRender(0, 0, nullptr);
+#endif
 	HR(mSwapChain->Present(0, 0));
 }
 
@@ -769,8 +794,8 @@ void SSAOApp::Blur1D(bool bHorzBlur)
 	};
 	static ConstantBuffer<BlurConstants> buffer(md3dDevice, 1);
 	BlurConstants blurCB;
-	blurCB.gTexelHeight = 1.0f / (mClientHeight*0.5);
-	blurCB.gTexelWidth = 1.0f / (mClientWidth*0.5);
+	blurCB.gTexelHeight = 1.0f / (mClientHeight*1.0);
+	blurCB.gTexelWidth = 1.0f / (mClientWidth*1.0);
 	blurCB.gHorizontalBlur = bHorzBlur;
 	buffer.UploadData(md3dImmediateContext, 0, blurCB);
 
@@ -817,7 +842,18 @@ void SSAOApp::ShaderCheckResource(ShaderType Type, D3D_SHADER_INPUT_TYPE InputTy
 
 void SSAOApp::DrawSceneWithSSAO()
 {
-	FrameRender(0, 0, nullptr);
+	m_RenderTargetBuffer->Clear();
+	mDepths["depthBuffer"]->Clear();
+
+	std::vector<ID3D11SamplerState*> Sampler = { GetSampler("anisotropicWrap") };
+	md3dImmediateContext->PSSetSamplers(0, Sampler.size(), Sampler.data());
+
+	std::vector<ID3D11ShaderResourceView*> SRV = { mColors["AmbientBuffer0"]->GetSRV() };
+	ShaderCheckResource(PixelShader, D3D_SIT_TEXTURE, 0, "tAO");
+
+	md3dImmediateContext->PSSetShaderResources(0, SRV.size(), SRV.data());
+    md3dImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	md3dImmediateContext->DrawIndexed(6, 0, 0);
 }
 
 std::array<XMFLOAT4, 14> CalcOffsetVectors() 
@@ -954,7 +990,7 @@ void SSAOApp::OnMouseMove(WPARAM btnState, int x, int y)
 		mRadius += dx - dy;
 
 		// Restrict the radius.
-		mRadius = MathHelper::Clamp(mRadius, 3.0f, 200.0f);
+		mRadius = MathHelper::Clamp(mRadius, 1.0f, 20000.0f);
 	}
 
 	mLastMousePos.x = x;
@@ -1595,8 +1631,8 @@ void SSAOApp::CreatePSO(const std::string& tag, const PipelineStateDesc& desc)
 
 void SSAOApp::BuildViewDependentResource()
 {
-	auto HalfWidth = static_cast<uint32_t>(mClientWidth * 0.5);
-	auto HalfHegiht = static_cast<uint32_t>(mClientWidth * 0.5);
+	auto HalfWidth = static_cast<uint32_t>(mClientWidth * 1.0);
+	auto HalfHegiht = static_cast<uint32_t>(mClientHeight* 1.0);
 
 	auto AmbientBuffer0 = CreateColorBuffer("AmbientBuffer0", HalfWidth, HalfHegiht, 1, DXGI_FORMAT_R16_FLOAT);
 	AmbientBuffer0->SetColor({0.0f, 0.0f, 0.0f, 1.0f});
@@ -1672,5 +1708,9 @@ void SSAOApp::BuildPSO()
 
 	PipelineStateDesc BlurState { "texture", "blur", "blur" };
 	CreatePSO("BlurSSAO", BlurState);
+
+	PipelineStateDesc CompositeState { "", "composite", "composite" };
+	CompositeState.RT = "draw";
+	CreatePSO("Composite", CompositeState);
 
 }

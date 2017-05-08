@@ -183,5 +183,11 @@
     <FxCompile Include="FX\SSAOBlur.hlsl">
       <Filter>FX</Filter>
     </FxCompile>
+    <FxCompile Include="Scene3D.fx">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\Composite.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>

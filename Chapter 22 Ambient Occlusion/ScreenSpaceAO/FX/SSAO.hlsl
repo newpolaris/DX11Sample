@@ -6,7 +6,7 @@ cbuffer cbSsao : register(b0)
 	float4   gOffsetVectors[14];
 
 	// Coordinates given in view space.
-	float    gOcclusionRadius    = 0.5f;
+	float    gOcclusionRadius    = 0.3f;
 	float    gOcclusionFadeStart = 0.2f;
 	float    gOcclusionFadeEnd   = 2.0f;
 	float    gSurfaceEpsilon     = 0.05f;

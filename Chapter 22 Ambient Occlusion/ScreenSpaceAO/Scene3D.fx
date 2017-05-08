@@ -13,6 +13,7 @@
 // Please direct any bugs or questions to SDKFeedback@nvidia.com
 
 matrix g_WorldViewProjection;
+matrix g_WorldView;
 bool   g_IsWhite;
 
 Texture2D<float3> tColor;
@@ -37,11 +38,15 @@ struct VS_INPUT
 struct VS_OUTPUT
 {
     float4 HPosition    : SV_POSITION;
+    float3 PositionV    : POSITION;
+    float3 NormalV      : NORMAL;
 };
 
 struct PS_INPUT
 {
     float4 HPosition    : SV_POSITION;
+    float3 PositionV    : POSITION;
+    float3 NormalV      : NORMAL;
 };
 
 struct PostProc_VSOut
@@ -79,13 +84,14 @@ VS_OUTPUT GeometryVS( VS_INPUT input )
 {
     VS_OUTPUT output;
     output.HPosition = mul( float4(input.Pos,1), g_WorldViewProjection );
+    output.PositionV = mul( input.Pos, (float3x3)g_WorldView );
+	output.NormalV = mul(input.Pos, (float3x3)g_WorldView);
     return output;
 }
 
 float4 GeometryPS( PS_INPUT In ) : SV_Target
 {
-    if (g_IsWhite) return float4(1,1,1,1);
-    return float4(.457,.722, 0.0, 1);
+	return float4(normalize(In.NormalV), In.PositionV.z);
 }
 
 //-----------------------------------------------------------------------------

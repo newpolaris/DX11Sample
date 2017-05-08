@@ -150,5 +150,6 @@ private:
 
     // Effect variable pointers
     ID3DX11EffectMatrixVariable *m_VarWVP;
+    ID3DX11EffectMatrixVariable *m_VarWV;
     ID3DX11EffectScalarVariable *m_VarIsWhite;
 };

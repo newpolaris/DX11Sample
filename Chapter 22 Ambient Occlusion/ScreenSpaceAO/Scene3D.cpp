@@ -72,6 +72,7 @@ void SceneRenderer::RecompileShader()
     m_RenderSceneDiffusePass = m_Effect->GetTechniqueByName("RenderSceneDiffuse")->GetPassByIndex(0);
     m_CopyColorPass          = m_Effect->GetTechniqueByName("CopyColor")->GetPassByIndex(0);
     m_VarWVP                 = m_Effect->GetVariableByName("g_WorldViewProjection")->AsMatrix();
+    m_VarWV                  = m_Effect->GetVariableByName("g_WorldView")->AsMatrix();
     m_VarIsWhite             = m_Effect->GetVariableByName("g_IsWhite")->AsScalar();
 }
 
@@ -149,6 +150,7 @@ HRESULT SceneRenderer::OnFrameRender(const D3DXMATRIX *p_mWorld,
 
     // Set effect variables
     m_VarWVP->SetMatrix(WVPMatrix);
+    m_VarWV->SetMatrix(WVMatrix);
     m_VarIsWhite->SetBool(!pMesh->UseShading());
 
     // Draw mesh
@@ -182,6 +184,7 @@ HRESULT SceneRenderer::OnFrameRender(const D3DXMATRIX *p_mWorld,
         WVMatrix = mTranslate * WVMatrix;
         WVPMatrix = WVMatrix * (*p_mProj);
         m_VarWVP->SetMatrix(WVPMatrix);
+        m_VarWV->SetMatrix(WVMatrix);
 
         UINT stride = sizeof(Scene3DVertex);
         UINT offset = 0;
