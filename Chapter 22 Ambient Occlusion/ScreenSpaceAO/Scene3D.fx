@@ -130,7 +130,7 @@ technique10 RenderSceneDiffuse
         SetVertexShader  ( CompileShader( vs_5_0, GeometryVS() ) );
         SetGeometryShader( NULL );
         SetPixelShader   ( CompileShader( ps_5_0, GeometryPS() ) );
-        SetRasterizerState( MS_RS );
+        // SetRasterizerState( MS_RS );
         SetBlendState( NoBlending, float4( 0.0f, 0.0f, 0.0f, 0.0f ), 0xFFFFFFFF );
         SetDepthStencilState(DepthState, 0);
     }

@@ -128,6 +128,17 @@ void Camera::SetLens(float fovY, float aspect, float zn, float zf)
 	XMStoreFloat4x4(&mProj, P);
 }
 
+void Camera::Zoom(float f) {
+	mFactor += f*10;
+	mFovY += f;
+
+	mNearWindowHeight = 2.0f * mNearZ * tanf( 0.5f*mFovY );
+	mFarWindowHeight  = 2.0f * mFarZ * tanf( 0.5f*mFovY );
+
+	XMMATRIX P = XMMatrixPerspectiveFovLH(mFovY, mAspect, mNearZ, mFarZ);
+	XMStoreFloat4x4(&mProj, P);
+}
+
 void Camera::LookAt(FXMVECTOR pos, FXMVECTOR target, FXMVECTOR worldUp)
 {
 	XMVECTOR L = XMVector3Normalize(XMVectorSubtract(target, pos));
@@ -166,6 +177,7 @@ XMMATRIX Camera::ViewProj()const
 
 void Camera::Strafe(float d)
 {
+	d *= mFactor;
 	// mPosition += d*mRight
 	XMVECTOR s = XMVectorReplicate(d);
 	XMVECTOR r = XMLoadFloat3(&mRight);
@@ -175,6 +187,7 @@ void Camera::Strafe(float d)
 
 void Camera::Walk(float d)
 {
+	d *= mFactor;
 	// mPosition += d*mLook
 	XMVECTOR s = XMVectorReplicate(d);
 	XMVECTOR l = XMLoadFloat3(&mLook);

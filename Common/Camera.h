@@ -49,6 +49,8 @@ public:
 	// Set frustum.
 	void SetLens(float fovY, float aspect, float zn, float zf);
 
+	void Zoom(float f);
+
 	// Define camera space via LookAt parameters.
 	void LookAt(FXMVECTOR pos, FXMVECTOR target, FXMVECTOR worldUp);
 	void LookAt(const XMFLOAT3& pos, const XMFLOAT3& target, const XMFLOAT3& up);
@@ -84,6 +86,7 @@ private:
 	float mFovY;
 	float mNearWindowHeight;
 	float mFarWindowHeight;
+	float mFactor = 1.0;
 
 	// Cache View/Proj matrices.
 	XMFLOAT4X4 mView;

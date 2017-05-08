@@ -7,6 +7,7 @@
 //
 //***************************************************************************************
 
+#include <random>
 #include "d3dApp.h"
 #include "d3dx11Effect.h"
 #include "GeometryGenerator.h"
@@ -22,6 +23,7 @@
 #include "Shader.h"
 #include "Scene3D.h"
 #include "SceneBinFile.h"
+#include "Camera.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "D3DCompiler.lib")
@@ -67,7 +69,7 @@ SceneMesh g_SceneMeshes[NUM_MESHES];
 SceneBinFile g_SceneBinFiles[NUM_BIN_FILES];
 SceneRenderer g_pSceneRenderer;
 
-static int g_CurrentSceneId = 4;
+static int g_CurrentSceneId = 3;
 
 struct Scene
 {
@@ -229,9 +231,8 @@ private:
 	XMMATRIX mView = XMMatrixIdentity();
 	XMMATRIX mProj = XMMatrixIdentity();
 
-    float mTheta = 1.24f*XM_PI;
-    float mPhi = 0.42f*XM_PI;
-    float mRadius = 12.0f;
+	Camera mCam;
+	int mState = 1;
 
     POINT mLastMousePos;
 };
@@ -253,7 +254,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 
 SSAOApp::SSAOApp(HINSTANCE hInstance)
 : D3DApp(hInstance),
-  mEyePos(0.0f, 0.0f, 0.0f), mTheta(1.5f*MathHelper::Pi), mPhi(0.1f*MathHelper::Pi), mRadius(15.0f)
+  mEyePos(0.0f, 0.0f, 0.0f)
 {
 	mMainWndCaption = L"SSAO Demo";
 	
@@ -280,6 +281,14 @@ SSAOApp::SSAOApp(HINSTANCE hInstance)
 		XMStoreFloat4x4(&mSphereWorld[i*2+1], XMMatrixTranslation(+5.0f, 3.5f, -10.0f + i*5.0f));
 	}
 	m_RenderTargetBuffer = std::make_shared<ColorBuffer>();
+
+    D3DXVECTOR3 sibenikVecEye(0.025372846f, -0.059336402f, -0.057159711f);
+    D3DXVECTOR3 sibenikVecAt (0.68971950f, -0.61976534f ,0.43737334f);
+
+	XMFLOAT3 eye(0.025372846f, -0.059336402f, -0.057159711f);
+	XMFLOAT3 target(0.68971950f, -0.61976534f ,0.43737334f);
+	XMFLOAT3 up(0.f, 1.0, 0.0);
+	mCam.LookAt(eye, target, up);
 }
 
 SSAOApp::~SSAOApp()
@@ -311,8 +320,6 @@ void SSAOApp::OnResize()
 	m_RenderTargetBuffer->Destroy();
 
 	D3DApp::OnResize();
-
-	mProj = XMMatrixPerspectiveFovLH(0.25f*MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
 
 	// Resize the swap chain and recreate the render target view.
 
@@ -376,6 +383,7 @@ void SSAOApp::OnResize()
     {
         g_SceneBinFiles[i].OnResizedSwapChain(md3dDevice, mClientWidth, mClientHeight);
     }
+	mCam.SetLens(0.05f*MathHelper::Pi, AspectRatio(), 0.1f, 1000000.0f);
 }
 
 
@@ -499,25 +507,47 @@ void SSAOApp::UpdateScene(float dt)
 	UpdateCamera(dt);
 	UpdateMainPassCB(dt);
 	UploadObjects();
+
+	std::wostringstream outs;
+	outs.precision(6);
+	outs << mMainWndCaption << L"    "
+		<< L"X: " << mCam.GetPosition().x << L", "
+		<< L"Y: " << mCam.GetPosition().y << L", "
+		<< L"Z: " << mCam.GetPosition().y << L", ";
+	SetWindowText(mhMainWnd, outs.str().c_str());
 }
 
 void SSAOApp::OnKeyBoardInput(float dt)
 {
+	if (GetAsyncKeyState('1') & 0x8000)
+		mState = 1;
+	if (GetAsyncKeyState('2') & 0x8000)
+		mState = 2;
+
+	if( GetAsyncKeyState('W') & 0x8000 )
+		mCam.Walk(1.0f*dt);
+
+	if( GetAsyncKeyState('S') & 0x8000 )
+		mCam.Walk(-1.0f*dt);
+
+	if( GetAsyncKeyState('A') & 0x8000 )
+		mCam.Strafe(-1.0f*dt);
+
+	if( GetAsyncKeyState('D') & 0x8000 )
+		mCam.Strafe(1.0f*dt);
+
+	if (GetAsyncKeyState('Z') & 0x8000)
+		mCam.Zoom(dt*0.1);
+
+	if( GetAsyncKeyState('X') & 0x8000 )
+		mCam.Zoom(-dt*0.1);
 }
 
 void SSAOApp::UpdateCamera(float dt)
 {
-	// Convert Spherical to Cartesian coordinates.
-	mEyePos.x = mRadius*sinf(mPhi)*cosf(mTheta);
-	mEyePos.z = mRadius*sinf(mPhi)*sinf(mTheta);
-	mEyePos.y = mRadius*cosf(mPhi);
-
-	// Build the view matrix.
-	XMVECTOR pos = XMVectorSet(mEyePos.x, mEyePos.y, mEyePos.z, 1.0f);
-	XMVECTOR target = XMVectorZero();
-	XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-
-	mView = XMMatrixLookAtLH(pos, target, up);
+	mCam.UpdateViewMatrix();
+	mView = mCam.View();
+	mProj = mCam.Proj();
 }
 
 void SSAOApp::DrawRenderItems(RenderLayer layer)
@@ -654,8 +684,11 @@ void SSAOApp::FrameRender(double fTime, float fElapsedTime, void* pUserContext)
         }
         else
         {
-            D3DXMATRIX IdentityMatrix;
-            D3DXMatrixIdentity(&IdentityMatrix);
+			XMFLOAT3 up(1, 0, 0.f);
+			XMMATRIX R = XMMatrixRotationAxis(XMLoadFloat3(&up), XM_PI*1.5);
+            D3DXMATRIX IdentityMatrix((float*)&R);
+			if (g_CurrentSceneId != 5)
+				D3DXMatrixIdentity(&IdentityMatrix);
             g_pSceneRenderer.OnFrameRender(&IdentityMatrix,
 				(D3DXMATRIX*)&mView,
 				(D3DXMATRIX*)&mProj,
@@ -747,28 +780,29 @@ void SSAOApp::DrawScene()
 {
 	md3dImmediateContext->RSSetViewports(1, &mScreenViewport);
 
-#if 1
-	ApplyPipelineState("NormalDepth");
-	FrameRender(0, 0, nullptr);
+	if (mState == 1)
+	{
+		ApplyPipelineState("NormalDepth");
+		FrameRender(0, 0, nullptr);
 
-	ApplyPipelineState("ComputeSSAO");
-	ComputeSSAO();
+		ApplyPipelineState("ComputeSSAO");
+		ComputeSSAO();
 
-	ApplyPipelineState("BlurSSAO");
-	BlurAmbientMap(3);
+		ApplyPipelineState("BlurSSAO");
+		BlurAmbientMap(1);
 
-	ApplyPipelineState("Composite");
-	DrawSceneWithSSAO();
-
-#else
-	m_RenderTargetBuffer->Clear();
-	mDepths["depthBuffer"]->Clear();
-	ApplyPipelineState("NormalDepth");
-	ID3D11RenderTargetView* ColorRTV = { m_RenderTargetBuffer->GetRTV() };
-	// Render color and depth with the Scene3D class
-	md3dImmediateContext->OMSetRenderTargets(1, &ColorRTV, mDepths["depthBuffer"]->GetDSV());
-	FrameRender(0, 0, nullptr);
-#endif
+		ApplyPipelineState("Composite");
+		DrawSceneWithSSAO();
+	}
+	else
+	{
+		m_RenderTargetBuffer->Clear();
+		mDepths["depthBuffer"]->Clear();
+		ID3D11RenderTargetView* ColorRTV = { m_RenderTargetBuffer->GetRTV() };
+		// Render color and depth with the Scene3D class
+		md3dImmediateContext->OMSetRenderTargets(1, &ColorRTV, mDepths["depthBuffer"]->GetDSV());
+		FrameRender(0, 0, nullptr);
+	}
 	HR(mSwapChain->Present(0, 0));
 }
 
@@ -856,9 +890,16 @@ void SSAOApp::DrawSceneWithSSAO()
 	md3dImmediateContext->DrawIndexed(6, 0, 0);
 }
 
-std::array<XMFLOAT4, 14> CalcOffsetVectors() 
+float lerp(float a, float b, float f)
 {
-	std::array<XMFLOAT4, 14> offset;
+    return a + f * (b - a);
+}  
+
+#if 1
+const int kernelSize = 14;
+std::vector<XMFLOAT4> CalcOffsetVectors() 
+{
+	std::vector<XMFLOAT4> offset(14);
 
     // Start with 14 uniformly distributed vectors.  We choose the 8 corners of the cube
 	// and the 6 center points along each cube face.  We always alternate the points on 
@@ -897,12 +938,42 @@ std::array<XMFLOAT4, 14> CalcOffsetVectors()
 	}
 	return offset;
 }
+#else
+const int kernelSize = 64;
+std::vector<XMFLOAT4> CalcOffsetVectors() 
+{
+	std::uniform_real_distribution<float> randomFloats(0.0, 1.0); // random floats between 0.0 - 1.0
+	std::default_random_engine generator;
+	std::vector<XMFLOAT4> ssaoKernel;
+	for (uint16_t i = 0; i < kernelSize; ++i)
+	{
+		XMFLOAT3 sample(
+			randomFloats(generator) * 2.0 - 1.0,
+			randomFloats(generator) * 2.0 - 1.0,
+			randomFloats(generator)
+		);
 
-void SetOffsetVectors(XMFLOAT4 target[14])
+		XMVECTOR T = XMLoadFloat3(&sample);
+		T = XMVector3Normalize(T);
+		XMVectorScale(T, randomFloats(generator));
+
+		float scale = float(i) / float(kernelSize);
+		scale = lerp(0.1f, 1.0f, scale * scale);
+		XMVectorScale(T, scale);
+		XMFLOAT4 target;
+		target.w = 0.f;
+		XMStoreFloat4(&target, T);
+		ssaoKernel.push_back(target);
+	}
+	return ssaoKernel;
+}
+#endif
+
+void SetOffsetVectors(XMFLOAT4 target[kernelSize])
 {
 	static auto offset = CalcOffsetVectors();
     std::copy(offset.begin(), offset.end(), 
-		stdext::checked_array_iterator<XMFLOAT4*>(target, 14));
+		stdext::checked_array_iterator<XMFLOAT4*>(target, kernelSize));
 }
 
 void SSAOApp::ComputeSSAO()
@@ -920,7 +991,7 @@ void SSAOApp::ComputeSSAO()
 		XMFLOAT4X4 gProj;
 		XMFLOAT4X4 gInvProj;
 		XMFLOAT4X4 gProjTex;
-		XMFLOAT4   gOffsetVectors[14];
+		XMFLOAT4   gOffsetVectors[kernelSize];
 
 		// Coordinates given in view space.
 		float    gOcclusionRadius = 0.5f;
@@ -973,12 +1044,8 @@ void SSAOApp::OnMouseMove(WPARAM btnState, int x, int y)
 		float dx = XMConvertToRadians(0.25f*static_cast<float>(x - mLastMousePos.x));
 		float dy = XMConvertToRadians(0.25f*static_cast<float>(y - mLastMousePos.y));
 
-		// Update angles based on input to orbit camera around box.
-		mTheta += dx;
-		mPhi   += dy;
-
-		// Restrict the angle mPhi.
-		mPhi = MathHelper::Clamp(mPhi, 0.1f, MathHelper::Pi-0.1f);
+		mCam.Pitch(dy*0.1);
+		mCam.RotateY(dx*0.1);
 	}
 	else if( (btnState & MK_RBUTTON) != 0 )
 	{
@@ -987,10 +1054,10 @@ void SSAOApp::OnMouseMove(WPARAM btnState, int x, int y)
 		float dy = 0.01f*static_cast<float>(y - mLastMousePos.y);
 
 		// Update the camera radius based on input.
-		mRadius += dx - dy;
+		// mRadius += dx - dy;
 
 		// Restrict the radius.
-		mRadius = MathHelper::Clamp(mRadius, 1.0f, 20000.0f);
+		// mRadius = MathHelper::Clamp(mRadius, 1.0f, 20000.0f);
 	}
 
 	mLastMousePos.x = x;
@@ -1643,6 +1710,11 @@ void SSAOApp::BuildViewDependentResource()
 
 void SSAOApp::BuildPSO()
 {
+	CD3D11_RASTERIZER_DESC rs(D3D11_DEFAULT);
+	rs.FillMode = D3D11_FILL_WIREFRAME;
+	rs.CullMode = D3D11_CULL_NONE;
+	CreateResterizerState("wireframe", rs);
+
 	auto normalDepth = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
 	normalDepth.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
 	normalDepth.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;

@@ -488,6 +488,7 @@ void D3DApp::CalculateFrameStats()
 	// Compute averages over one second period.
 	if( (mTimer.TotalTime() - timeElapsed) >= 1.0f )
 	{
+#if 0
 		float fps = (float)frameCnt; // fps = frameCnt / 1
 		float mspf = 1000.0f / fps;
 
@@ -501,6 +502,7 @@ void D3DApp::CalculateFrameStats()
 		// Reset for next average.
 		frameCnt = 0;
 		timeElapsed += 1.0f;
+#endif
 	}
 }
 

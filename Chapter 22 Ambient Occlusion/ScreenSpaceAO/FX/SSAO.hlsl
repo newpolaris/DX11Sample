@@ -1,9 +1,10 @@
+#define kernelSize 14 
 cbuffer cbSsao : register(b0)
 {
 	float4x4 gProj;
 	float4x4 gInvProj;
 	float4x4 gProjTex;
-	float4   gOffsetVectors[14];
+	float4   gOffsetVectors[kernelSize];
 
 	// Coordinates given in view space.
 	float    gOcclusionRadius    = 0.3f;
@@ -18,7 +19,7 @@ Texture2D gRandomVecMap   : register(t1);
 SamplerState gSamNormalDepth : register(s0);
 SamplerState gSamRandomVec   : register(s1);
 
-static const int gSampleCount = 14;
+static const int gSampleCount = kernelSize;
 static const float2 gTexCoords[6] =
 {
     float2(0.0f, 1.0f),
