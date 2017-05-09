@@ -150,13 +150,6 @@ private:
 	D3D11_VIEWPORT m_HalfViewport;
 	PipelineStateObject* m_pCurrentPSO = nullptr;
 
-	// Define transformations from local spaces to world space.
-	XMFLOAT4X4 mSphereWorld[10];
-	XMFLOAT4X4 mCylWorld[10];
-	XMFLOAT4X4 mBoxWorld;
-	XMFLOAT4X4 mGridWorld;
-	XMFLOAT4X4 mSkullWorld;
-
 	XMFLOAT3 mEyePos = { 0.0f, 0.0f, 0.0f };
 	XMMATRIX mView = XMMatrixIdentity();
 	XMMATRIX mProj = XMMatrixIdentity();
@@ -191,32 +184,10 @@ SSAOApp::SSAOApp(HINSTANCE hInstance)
 	mLastMousePos.x = 0;
 	mLastMousePos.y = 0;
 
-	XMMATRIX I = XMMatrixIdentity();
-	XMStoreFloat4x4(&mGridWorld, I);
-
-	XMMATRIX boxScale = XMMatrixScaling(3.0f, 1.0f, 3.0f);
-	XMMATRIX boxOffset = XMMatrixTranslation(0.0f, 0.5f, 0.0f);
-	XMStoreFloat4x4(&mBoxWorld, XMMatrixMultiply(boxScale, boxOffset));
-
-	XMMATRIX skullScale = XMMatrixScaling(0.5f, 0.5f, 0.5f);
-	XMMATRIX skullOffset = XMMatrixTranslation(0.0f, 1.0f, 0.0f);
-	XMStoreFloat4x4(&mSkullWorld, XMMatrixMultiply(skullScale, skullOffset));
-
-	for(int i = 0; i < 5; ++i)
-	{
-		XMStoreFloat4x4(&mCylWorld[i*2+0], XMMatrixTranslation(-5.0f, 1.5f, -10.0f + i*5.0f));
-		XMStoreFloat4x4(&mCylWorld[i*2+1], XMMatrixTranslation(+5.0f, 1.5f, -10.0f + i*5.0f));
-
-		XMStoreFloat4x4(&mSphereWorld[i*2+0], XMMatrixTranslation(-5.0f, 3.5f, -10.0f + i*5.0f));
-		XMStoreFloat4x4(&mSphereWorld[i*2+1], XMMatrixTranslation(+5.0f, 3.5f, -10.0f + i*5.0f));
-	}
 	m_RenderTargetBuffer = std::make_shared<ColorBuffer>();
 
-    D3DXVECTOR3 sibenikVecEye(0.025372846f, -0.059336402f, -0.057159711f);
-    D3DXVECTOR3 sibenikVecAt (0.68971950f, -0.61976534f ,0.43737334f);
-
-	XMFLOAT3 eye(0.025372846f, -0.059336402f, -0.057159711f);
-	XMFLOAT3 target(0.68971950f, -0.61976534f ,0.43737334f);
+	XMFLOAT3 eye(2.3372846f, 2.059336402f, 2.057159711f);
+	XMFLOAT3 target(0.08971950f, -0.01976534f, 0.03737334f);
 	XMFLOAT3 up(0.f, 1.0, 0.0);
 	mCam.LookAt(eye, target, up);
 }
@@ -636,12 +607,6 @@ void SSAOApp::BlurAmbientMap(UINT nCount)
 	std::vector<ID3D11SamplerState*> Sampler = { GetSampler("border") };
 	md3dImmediateContext->PSSetSamplers(0, Sampler.size(), Sampler.data());
 
-	Blur1D(true);
-	Blur1D(false);
-}
-
-void SSAOApp::Blur1D(bool bHorzBlur)
-{
 	__declspec(align(16)) struct BlurConstants
 	{
 		float gTexelWidth;
@@ -659,9 +624,6 @@ void SSAOApp::Blur1D(bool bHorzBlur)
 
 	std::string srv = "AmbientBuffer0";
 	std::string rtv = "AmbientBuffer1";
-
-	if (!bHorzBlur)
-		std::swap(rtv, srv);
 
 	ShaderCheckResource(PixelShader, D3D_SIT_TEXTURE, 0, "gInputImage");
 
@@ -700,7 +662,7 @@ void SSAOApp::DrawSceneWithSSAO()
 	std::vector<ID3D11SamplerState*> Sampler = { GetSampler("anisotropicWrap") };
 	md3dImmediateContext->PSSetSamplers(0, Sampler.size(), Sampler.data());
 
-	std::vector<ID3D11ShaderResourceView*> SRV = { mColors["AmbientBuffer0"]->GetSRV() };
+	std::vector<ID3D11ShaderResourceView*> SRV = { mColors["AmbientBuffer1"]->GetSRV() };
 	ShaderCheckResource(PixelShader, D3D_SIT_TEXTURE, 0, "tAO");
 
 	md3dImmediateContext->PSSetShaderResources(0, SRV.size(), SRV.data());
