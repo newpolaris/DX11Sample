@@ -2,15 +2,10 @@ cbuffer cbPerFrame
 {
 	float gTexelWidth;
 	float gTexelHeight;
-    bool gHorizontalBlur;
 };
 
 Texture2D gInputImage : register(t0);
-
-SamplerState gSamLinearClamp;
-
-static const int gBlurRadius = 5;
-static float gWeights[11] = { 0.05f, 0.05f, 0.1f, 0.1f, 0.1f, 0.2f, 0.1f, 0.1f, 0.1f, 0.05f, 0.05f };
+SamplerState gSamLinearClamp : register(s0);
 
 struct VertexIn
 {
@@ -38,42 +33,18 @@ VertexOut VS(VertexIn vin)
     return vout;
 }
 
+static const int radius = 2;
 float PS(VertexOut pin) : SV_Target
 {
-	float2 texOffset;
-	if (gHorizontalBlur)
-	{
-		texOffset = float2(gTexelWidth, 0.0f);
-	}
-	else
-	{
-		texOffset = float2(0.0f, gTexelHeight);
-	}
-
-	float color = gWeights[5] * gInputImage.SampleLevel(gSamLinearClamp, pin.Tex, 0.0).x;
-	float totalWeight = gWeights[5];
-	 
-	for(float i = -gBlurRadius; i <=gBlurRadius; ++i)
-	{
-		// We already added in the center weight.
-		if( i == 0 )
-			continue;
-
-		float2 tex = pin.Tex + i*texOffset;
-
-		//
-		// If the center value and neighbor values differ too much (either in 
-		// normal or depth), then we assume we are sampling across a discontinuity.
-		// We discard such samples from the blur.
-		//
-	
-			float weight = gWeights[i+gBlurRadius];
-
-			// Add neighbor pixel to blur.
-			color += weight*gInputImage.SampleLevel(gSamLinearClamp, tex, 0.0);
-			totalWeight += weight;
-	}
-
-	// Compensate for discarded samples by making total weights sum to 1.
-	return color / totalWeight;
+    float result = 0.0;
+    for (int x = -radius; x < radius; ++x) 
+    {
+        for (int y = -radius; y < radius; ++y) 
+        {
+			float2 offset = float2(x, y) * float2(gTexelWidth, gTexelHeight);
+			result += gInputImage.SampleLevel(gSamLinearClamp, pin.Tex + offset, 0.0).x;
+        }
+    }
+	return result / float(16.f);
+	// return gInputImage.SampleLevel(gSamLinearClamp, pin.Tex, 0.0).x;
 }

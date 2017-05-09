@@ -848,11 +848,8 @@ void SSAOApp::BlurAmbientMap(UINT nCount)
 	std::vector<ID3D11SamplerState*> Sampler = { GetSampler("border") };
 	md3dImmediateContext->PSSetSamplers(0, Sampler.size(), Sampler.data());
 
-    for(UINT i = 0; i < nCount; ++i)
-    {
-        Blur1D(true);
-        Blur1D(false);
-    }
+	Blur1D(true);
+	Blur1D(false);
 }
 
 void SSAOApp::Blur1D(bool bHorzBlur)
@@ -861,13 +858,11 @@ void SSAOApp::Blur1D(bool bHorzBlur)
 	{
 		float gTexelWidth;
 		float gTexelHeight;
-		int   gHorizontalBlur;
 	};
 	static ConstantBuffer<BlurConstants> buffer(md3dDevice, 1);
 	BlurConstants blurCB;
 	blurCB.gTexelHeight = 1.0f / (mClientHeight*1.0);
 	blurCB.gTexelWidth = 1.0f / (mClientWidth*1.0);
-	blurCB.gHorizontalBlur = bHorzBlur;
 	buffer.UploadData(md3dImmediateContext, 0, blurCB);
 
 	std::vector<ID3D11Buffer*> Buffer = { buffer.Resource(0) };

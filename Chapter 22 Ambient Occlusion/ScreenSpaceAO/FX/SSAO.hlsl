@@ -57,40 +57,11 @@ VertexOut VS(uint vid : SV_VertexID)
     return vout;
 }
 
-// Determines how much the sample point q occludes the point p as a function
-// of distZ.
-float OcclusionFunction(float distZ)
+float NdcDepthToViewDepth(float z_ndc)
 {
-	//
-	// If depth(q) is "behind" depth(p), then q cannot occlude p.  Moreover, if 
-	// depth(q) and depth(p) are sufficiently close, then we also assume q cannot
-	// occlude p because q needs to be in front of p by Epsilon to occlude p.
-	//
-	// We use the following function to determine the occlusion.  
-	// 
-	//
-	//       1.0     -------------\
-	//               |           |  \
-	//               |           |    \
-	//               |           |      \ 
-	//               |           |        \
-	//               |           |          \
-	//               |           |            \
-	//  ------|------|-----------|-------------|---------|--> zv
-	//        0     Eps          z0            z1        
-	//
-	
-	float occlusion = 0.0f;
-	if(distZ > gSurfaceEpsilon)
-	{
-		float fadeLength = gOcclusionFadeEnd - gOcclusionFadeStart;
-		
-		// Linearly decrease occlusion from 1 to 0 as distZ goes 
-		// from gOcclusionFadeStart to gOcclusionFadeEnd.	
-		occlusion = saturate( (gOcclusionFadeEnd-distZ)/fadeLength );
-	}
-	
-	return occlusion;	
+    // z_ndc = A + B/viewZ, where gProj[2,2]=A and gProj[3,2]=B.
+    float viewZ = gProj[3][2] / (z_ndc - gProj[2][2]);
+    return viewZ;
 }
 
 float4 PS(VertexOut pin) : SV_Target
@@ -103,7 +74,8 @@ float4 PS(VertexOut pin) : SV_Target
 	// Get viewspace normal and z-coord of this pixel.  The tex-coords for
 	// the fullscreen quad we drew are already in uv-space.
 	float3 normal = normalize(gNormalMap.SampleLevel(gSamNormal, pin.TexC, 0.0f).xyz);
-	float pz = gDepthMap.SampleLevel(gSamDepth, pin.TexC, 0.0f).r;
+	float pz = gDepthMap.SampleLevel(gSamDepth, pin.TexC, 0.0f).x;
+	// pz = NdcDepthToViewDepth(pz);
 
 	//
 	// Reconstruct full view space position (x,y,z).
@@ -140,6 +112,7 @@ float4 PS(VertexOut pin) : SV_Target
 		// occupy empty space).  To find the nearest depth we look it up in the depthmap.
 
 		float sampleDepth = gDepthMap.SampleLevel(gSamDepth, offset.xy, 0.0f).r;
+        // sampleDepth = NdcDepthToViewDepth(sampleDepth);
 
 		// float rangeCheck = abs(pz - sampleDepth) < gOcclusionRadius ? 1.0 : 0.0;
 		// float rangeCheck = smoothstep(0.0, 1.0, gOcclusionRadius / abs(pz - sampleDepth));
@@ -151,5 +124,5 @@ float4 PS(VertexOut pin) : SV_Target
 	float access = 1.0f - occlusion;
 
 	// Sharpen the contrast of the SSAO map to make the SSAO affect more dramatic.
-	return saturate(pow(access, 3.0f));
+	return access;
 }

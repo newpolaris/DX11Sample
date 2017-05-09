@@ -188,8 +188,12 @@ protected:
 
 CDXUTResourceCache& DXUTGetGlobalResourceCache();
 
+#ifdef _DEBUG
 inline void DXUT_SetDebugName( ID3D11DeviceChild* pObj, const CHAR* pstrName )
 {
     if ( pObj )
         pObj->SetPrivateData( WKPDID_D3DDebugObjectName, lstrlenA(pstrName), pstrName );
 }
+#else
+#define DXUT_SetDebugName(A, B)
+#endif
