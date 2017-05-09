@@ -70,6 +70,7 @@ SceneBinFile g_SceneBinFiles[NUM_BIN_FILES];
 SceneRenderer g_pSceneRenderer;
 
 static int g_CurrentSceneId = 3;
+static float gRaidus = 0.05;
 
 struct Scene
 {
@@ -508,13 +509,31 @@ void SSAOApp::UpdateScene(float dt)
 	UpdateMainPassCB(dt);
 	UploadObjects();
 
-	std::wostringstream outs;
-	outs.precision(6);
-	outs << mMainWndCaption << L"    "
-		<< L"X: " << mCam.GetPosition().x << L", "
-		<< L"Y: " << mCam.GetPosition().y << L", "
-		<< L"Z: " << mCam.GetPosition().y << L", ";
-	SetWindowText(mhMainWnd, outs.str().c_str());
+	static int frameCnt = 0;
+	static float timeElapsed = 0.0f;
+
+	frameCnt++;
+
+	// Compute averages over one second period.
+	if ((mTimer.TotalTime() - timeElapsed) >= 1.0f)
+	{
+		float fps = (float)frameCnt; // fps = frameCnt / 1
+		float mspf = 1000.0f / fps;
+
+		// Reset for next average.
+		frameCnt = 0;
+		timeElapsed += 1.0f;
+		std::wostringstream outs;
+		outs.precision(6);
+		outs << mMainWndCaption << L"    "
+			<< L"FPS: " << fps << L"    "
+			<< L"Frame Time: " << mspf << L" (ms)    "
+			<< L"X: " << mCam.GetPosition().x << L", "
+			<< L"Y: " << mCam.GetPosition().y << L", "
+			<< L"Z: " << mCam.GetPosition().y << L", "
+			<< L"Radius " << gRaidus;
+		SetWindowText(mhMainWnd, outs.str().c_str());
+	}
 }
 
 void SSAOApp::OnKeyBoardInput(float dt)
@@ -523,6 +542,22 @@ void SSAOApp::OnKeyBoardInput(float dt)
 		mState = 1;
 	if (GetAsyncKeyState('2') & 0x8000)
 		mState = 2;
+
+	if (GetAsyncKeyState('3') & 0x8000)
+		g_CurrentSceneId = 3;
+	if (GetAsyncKeyState('4') & 0x8000)
+		g_CurrentSceneId = 4;
+	if (GetAsyncKeyState('5') & 0x8000)
+		g_CurrentSceneId = 5;
+	if (GetAsyncKeyState('6') & 0x8000)
+		g_CurrentSceneId = 6;
+	if (GetAsyncKeyState('7') & 0x8000)
+		g_CurrentSceneId = 7;
+
+	if (GetAsyncKeyState('F') & 0x8000)
+		gRaidus -= 0.05*dt;
+	if (GetAsyncKeyState('G') & 0x8000)
+		gRaidus += 0.05*dt;
 
 	if( GetAsyncKeyState('W') & 0x8000 )
 		mCam.Walk(1.0f*dt);
@@ -783,6 +818,7 @@ void SSAOApp::DrawScene()
 	if (mState == 1)
 	{
 		ApplyPipelineState("NormalDepth");
+		md3dImmediateContext->RSSetState(mRasterizerState["nowireframe"].Get());
 		FrameRender(0, 0, nullptr);
 
 		ApplyPipelineState("ComputeSSAO");
@@ -799,6 +835,7 @@ void SSAOApp::DrawScene()
 		m_RenderTargetBuffer->Clear();
 		mDepths["depthBuffer"]->Clear();
 		ID3D11RenderTargetView* ColorRTV = { m_RenderTargetBuffer->GetRTV() };
+		md3dImmediateContext->RSSetState(mRasterizerState["wireframe"].Get());
 		// Render color and depth with the Scene3D class
 		md3dImmediateContext->OMSetRenderTargets(1, &ColorRTV, mDepths["depthBuffer"]->GetDSV());
 		FrameRender(0, 0, nullptr);
@@ -895,50 +932,6 @@ float lerp(float a, float b, float f)
     return a + f * (b - a);
 }  
 
-#if 1
-const int kernelSize = 14;
-std::vector<XMFLOAT4> CalcOffsetVectors() 
-{
-	std::vector<XMFLOAT4> offset(14);
-
-    // Start with 14 uniformly distributed vectors.  We choose the 8 corners of the cube
-	// and the 6 center points along each cube face.  We always alternate the points on 
-	// opposites sides of the cubes.  This way we still get the vectors spread out even
-	// if we choose to use less than 14 samples.
-	
-	// 8 cube corners
-	offset[0] = XMFLOAT4(+1.0f, +1.0f, +1.0f, 0.0f);
-	offset[1] = XMFLOAT4(-1.0f, -1.0f, -1.0f, 0.0f);
-
-	offset[2] = XMFLOAT4(-1.0f, +1.0f, +1.0f, 0.0f);
-	offset[3] = XMFLOAT4(+1.0f, -1.0f, -1.0f, 0.0f);
-
-	offset[4] = XMFLOAT4(+1.0f, +1.0f, -1.0f, 0.0f);
-	offset[5] = XMFLOAT4(-1.0f, -1.0f, +1.0f, 0.0f);
-
-	offset[6] = XMFLOAT4(-1.0f, +1.0f, -1.0f, 0.0f);
-	offset[7] = XMFLOAT4(+1.0f, -1.0f, +1.0f, 0.0f);
-
-	// 6 centers of cube faces
-	offset[8] = XMFLOAT4(-1.0f, 0.0f, 0.0f, 0.0f);
-	offset[9] = XMFLOAT4(+1.0f, 0.0f, 0.0f, 0.0f);
-
-	offset[10] = XMFLOAT4(0.0f, -1.0f, 0.0f, 0.0f);
-	offset[11] = XMFLOAT4(0.0f, +1.0f, 0.0f, 0.0f);
-
-	offset[12] = XMFLOAT4(0.0f, 0.0f, -1.0f, 0.0f);
-	offset[13] = XMFLOAT4(0.0f, 0.0f, +1.0f, 0.0f);
-
-    for(int i = 0; i < 14; ++i)
-	{
-		// Create random lengths in [0.25, 1.0].
-		float s = MathHelper::RandF(0.25f, 1.0f);
-		XMVECTOR v = s * XMVector4Normalize(XMLoadFloat4(&offset[i]));
-		XMStoreFloat4(&offset[i], v);
-	}
-	return offset;
-}
-#else
 const int kernelSize = 64;
 std::vector<XMFLOAT4> CalcOffsetVectors() 
 {
@@ -967,7 +960,6 @@ std::vector<XMFLOAT4> CalcOffsetVectors()
 	}
 	return ssaoKernel;
 }
-#endif
 
 void SetOffsetVectors(XMFLOAT4 target[kernelSize])
 {
@@ -994,14 +986,14 @@ void SSAOApp::ComputeSSAO()
 		XMFLOAT4   gOffsetVectors[kernelSize];
 
 		// Coordinates given in view space.
-		float    gOcclusionRadius = 0.5f;
+		float    gOcclusionRadius = 0.05f;
 		float    gOcclusionFadeStart = 0.2f;
 		float    gOcclusionFadeEnd = 2.0f;
 		float    gSurfaceEpsilon = 0.05f;
 	};
 	static ConstantBuffer<SSAOConstants> buffer(md3dDevice, 1);
 	SSAOConstants ssaoCB;
-
+	ssaoCB.gOcclusionRadius = gRaidus;
     XMStoreFloat4x4(&ssaoCB.gProj, mProj);
 	XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(mProj), mProj);
     XMStoreFloat4x4(&ssaoCB.gInvProj, invProj);
@@ -1715,6 +1707,10 @@ void SSAOApp::BuildPSO()
 	rs.CullMode = D3D11_CULL_NONE;
 	CreateResterizerState("wireframe", rs);
 
+	CD3D11_RASTERIZER_DESC nors(D3D11_DEFAULT);
+	nors.CullMode = D3D11_CULL_NONE;
+	CreateResterizerState("nowireframe", nors);
+
 	auto normalDepth = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
 	normalDepth.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
 	normalDepth.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
@@ -1740,21 +1736,30 @@ void SSAOApp::BuildPSO()
 	NormalDepthState.RT = "normalDepth";
 	CreatePSO("NormalDepth", NormalDepthState);
 
-    XMCOLOR initData[256 * 256];
-    for (int i = 0; i < 256; ++i)
+	std::uniform_real_distribution<float> randomFloats(0.0, 1.0); // random floats between 0.0 - 1.0
+	std::default_random_engine generator;
+	std::vector<XMFLOAT3> ssaoNoise;
+	const int noiseSize = 16;
+	for (uint16_t i = 0; i < noiseSize; i++)
+	{
+		XMFLOAT3 noise(
+			randomFloats(generator) * 2.0 - 1.0,
+			randomFloats(generator) * 2.0 - 1.0,
+			0.0f);
+		ssaoNoise.push_back(noise);
+	}
+
+    XMFLOAT4 initData[noiseSize];
+    for (int i = 0; i < noiseSize; ++i)
     {
-        for (int j = 0; j < 256; ++j)
-        {
-			// Random vector in [0,1].  We will decompress in shader to [-1,1].
-            XMFLOAT3 v(MathHelper::RandF(), MathHelper::RandF(), MathHelper::RandF());
-            initData[i * 256 + j] = XMCOLOR(v.x, v.y, v.z, 0.0f);
-        }
+		auto& v = ssaoNoise[i];
+		initData[i] = XMFLOAT4(v.x, v.y, v.z, 0.0f);
     }
 
     D3D11_SUBRESOURCE_DATA subResourceData = {0};
     subResourceData.pSysMem = initData;
-    subResourceData.SysMemPitch = 256 * sizeof(XMCOLOR);
-	CreateColorBuffer("randomVec", 256, 256, 1, DXGI_FORMAT_R8G8B8A8_UNORM, &subResourceData);
+    subResourceData.SysMemPitch = noiseSize * sizeof(XMFLOAT4);
+	CreateColorBuffer("randomVec", 4, 4, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, &subResourceData);
 
 	PipelineStateDesc ComputeSSAOState { "", "ssao", "ssao" };
 	auto ComputeSSAOTarget = CreateRenderTarget("ssao");

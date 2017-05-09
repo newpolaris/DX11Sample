@@ -1,4 +1,4 @@
-#define kernelSize 14 
+#define kernelSize  64
 cbuffer cbSsao : register(b0)
 {
 	float4x4 gProj;
@@ -7,7 +7,7 @@ cbuffer cbSsao : register(b0)
 	float4   gOffsetVectors[kernelSize];
 
 	// Coordinates given in view space.
-	float    gOcclusionRadius    = 0.3f;
+	float    gOcclusionRadius    = 0.5f;
 	float    gOcclusionFadeStart = 0.2f;
 	float    gOcclusionFadeEnd   = 2.0f;
 	float    gSurfaceEpsilon     = 0.05f;
@@ -19,6 +19,7 @@ Texture2D gRandomVecMap   : register(t1);
 SamplerState gSamNormalDepth : register(s0);
 SamplerState gSamRandomVec   : register(s1);
 
+static const float2 gNoiseScale = {1280.f / 4, 720.f / 4};
 static const int gSampleCount = kernelSize;
 static const float2 gTexCoords[6] =
 {
@@ -101,7 +102,7 @@ float4 PS(VertexOut pin) : SV_Target
 	// the fullscreen quad we drew are already in uv-space.
 	float4 normalDepth = gNormalDepthMap.SampleLevel(gSamNormalDepth, pin.TexC, 0.0f);
  
-	float3 n = normalDepth.xyz;
+	float3 normal = normalize(normalDepth.xyz);
 	float pz = normalDepth.w;
 
 	//
@@ -112,65 +113,43 @@ float4 PS(VertexOut pin) : SV_Target
 	//
 	float3 p = (pz/pin.PosV.z)*pin.PosV;	
 
-	// Extract random vector and map from [0,1] --> [-1, +1].
-	float3 randVec = 2.0f*gRandomVecMap.SampleLevel(gSamRandomVec, 4.0f*pin.TexC, 0.0f).rgb - 1.0f;
+	float3 randomVec = gRandomVecMap.SampleLevel(gSamRandomVec, gNoiseScale*pin.TexC, 0.0f).rgb;
 
-	float occlusionSum = 0.0f;
-	
+	float3 tangent = normalize(randomVec - normal * dot(randomVec, normal));
+	float3 bitangent = cross(normal, tangent);
+	float3x3 tbn = float3x3(tangent, bitangent, normal);
+
+	float occlusion = 0.0f;
 	// Sample neighboring points about p in the hemisphere oriented by n.
 	[unroll]
 	for(int i = 0; i < gSampleCount; ++i)
 	{
-		// Are offset vectors are fixed and uniformly distributed (so that our offset vectors
-		// do not clump in the same direction).  If we reflect them about a random vector
-		// then we get a random uniform distribution of offset vectors.
-		float3 offset = reflect(gOffsetVectors[i].xyz, randVec);
+		float3 Sample = mul(gOffsetVectors[i].xyz, tbn);
+		Sample = p + Sample * gOcclusionRadius;
 	
-		// Flip offset vector if it is behind the plane defined by (p, n).
-		float flip = sign( dot(offset, n) );
-		
-		// Sample a point near p within the occlusion radius.
-		float3 q = p + flip * gOcclusionRadius * offset;
-		
 		// Project q and generate projective tex-coords.  
-		float4 projQ = mul(float4(q, 1.0f), gProjTex);
-		projQ /= projQ.w;
+		float4 offset = float4(Sample, 1.0f);
+		offset = mul(offset, gProj);
+		offset.xy /= offset.w;
+		offset.xy = offset.xy * 0.5 + 0.5;
+		// float4 offset = mul(float4(Sample, 1.0f), gProjTex);
+		// offset /= offset.w;
 
 		// Find the nearest depth value along the ray from the eye to q (this is not
 		// the depth of q, as q is just an arbitrary point near p and might
 		// occupy empty space).  To find the nearest depth we look it up in the depthmap.
 
-		float rz = gNormalDepthMap.SampleLevel(gSamNormalDepth, projQ.xy, 0.0f).a;
+		float sampleDepth = gNormalDepthMap.SampleLevel(gSamNormalDepth, offset.xy, 0.0f).a;
 
-		// Reconstruct full view space position r = (rx,ry,rz).  We know r
-		// lies on the ray of q, so there exists a t such that r = t*q.
-		// r.z = t*q.z ==> t = r.z / q.z
-
-		float3 r = (rz / q.z) * q;
-		
-		//
-		// Test whether r occludes p.
-		//   * The product dot(n, normalize(r - p)) measures how much in front
-		//     of the plane(p,n) the occluder point r is.  The more in front it is, the
-		//     more occlusion weight we give it.  This also prevents self shadowing where 
-		//     a point r on an angled plane (p,n) could give a false occlusion since they
-		//     have different depth values with respect to the eye.
-		//   * The weight of the occlusion is scaled based on how far the occluder is from
-		//     the point we are computing the occlusion of.  If the occluder r is far away
-		//     from p, then it does not occlude it.
-		// 
-		
-		float distZ = p.z - r.z;
-		float dp = max(dot(n, normalize(r - p)), 0.0f);
-		float occlusion = dp * OcclusionFunction(distZ);
-		
-		occlusionSum += occlusion;
+		// float rangeCheck = abs(pz - sampleDepth) < gOcclusionRadius ? 1.0 : 0.0;
+		float rangeCheck = smoothstep(0.0, 1.0, gOcclusionRadius / abs(pz - sampleDepth));
+		// float rangeCheck = 1.0f;
+		occlusion += (sampleDepth <= Sample.z ? 1.0 : 0.0) * rangeCheck;
 	}
+	occlusion /= gSampleCount;
 	
-	occlusionSum /= gSampleCount;
-	
-	float access = 1.0f - occlusionSum;
+	float access = 1.0f - occlusion;
 
 	// Sharpen the contrast of the SSAO map to make the SSAO affect more dramatic.
-	return saturate(pow(access, 4.0f));
+	return saturate(pow(access, 3.0f));
 }
