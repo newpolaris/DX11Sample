@@ -1,5 +1,6 @@
 #define kernelSize  64
 #define DEPTH32
+#define RANGE_CHECK
 
 cbuffer cbSsao : register(b0)
 {
@@ -106,12 +107,15 @@ float4 PS(VertexOut pin) : SV_Target
 		Sample = p + Sample * gOcclusionRadius;
 	
 		// Project q and generate projective tex-coords.  
+#ifndef PROJ_TEX
 		float4 offset = float4(Sample, 1.0f);
 		offset = mul(offset, gProj);
 		offset.xy /= offset.w;
 		offset.xy = offset.xy * 0.5 + 0.5;
-		// float4 offset = mul(float4(Sample, 1.0f), gProjTex);
-		// offset /= offset.w;
+#else
+		float4 offset = mul(float4(Sample, 1.0f), gProjTex);
+		offset /= offset.w;
+#endif
 
 		// Find the nearest depth value along the ray from the eye to q (this is not
 		// the depth of q, as q is just an arbitrary point near p and might
@@ -124,9 +128,12 @@ float4 PS(VertexOut pin) : SV_Target
 		float sampleDepth = gNormalMap.SampleLevel(gSamDepth, offset.xy, 0.0f).w;
 #endif
 
+#ifdef RANGE_CHECK
+		float rangeCheck = smoothstep(0.0, 1.0, gOcclusionRadius / abs(pz - sampleDepth));
 		// float rangeCheck = abs(pz - sampleDepth) < gOcclusionRadius ? 1.0 : 0.0;
-		// float rangeCheck = smoothstep(0.0, 1.0, gOcclusionRadius / abs(pz - sampleDepth));
+#else
 		float rangeCheck = 1.0f;
+#endif
 		occlusion += (sampleDepth <= Sample.z ? 1.0 : 0.0) * rangeCheck;
 	}
 	occlusion /= gSampleCount;

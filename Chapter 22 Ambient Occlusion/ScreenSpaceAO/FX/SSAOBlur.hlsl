@@ -20,17 +20,12 @@ struct VertexOut
 	float2 Tex   : TEXCOORD;
 };
 
-VertexOut VS(VertexIn vin)
+VertexOut VS( uint id : SV_VertexID )
 {
-	VertexOut vout;
-	
-	// Already in NDC space.
-	vout.PosH = float4(vin.PosL, 1.0f);
-
-	// Pass onto pixel shader.
-	vout.Tex = vin.Tex;
-	
-    return vout;
+    VertexOut output = (VertexOut)0.0f;
+    output.Tex = float2( (id << 1) & 2, id & 2 );
+    output.PosH = float4( output.Tex * float2( 2.0f, -2.0f ) + float2( -1.0f, 1.0f) , 0.0f, 1.0f );
+    return output;
 }
 
 static const int radius = 2;

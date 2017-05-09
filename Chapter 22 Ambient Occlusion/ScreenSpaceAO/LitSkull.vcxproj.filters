@@ -24,11 +24,6 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <None Include="FX\LightHelper.fx">
-      <Filter>FX</Filter>
-    </None>
-  </ItemGroup>
-  <ItemGroup>
     <ClCompile Include="..\..\Common\d3dApp.cpp">
       <Filter>Common</Filter>
     </ClCompile>
@@ -177,12 +172,6 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="FX\Basic.fx">
-      <Filter>FX</Filter>
-    </FxCompile>
-    <FxCompile Include="FX\NormalDepth.hlsl">
-      <Filter>FX</Filter>
-    </FxCompile>
     <FxCompile Include="FX\SSAO.hlsl">
       <Filter>FX</Filter>
     </FxCompile>
