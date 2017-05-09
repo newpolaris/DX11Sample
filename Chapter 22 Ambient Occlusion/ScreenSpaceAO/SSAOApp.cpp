@@ -334,8 +334,8 @@ void SSAOApp::OnResize()
 	auto HalfHeight = static_cast<uint32_t>(mClientHeight * 1.0);
 
 	// TextureResize
-	if (mColors.count("normalDepth"))
-		mColors["normalDepth"]->Resize(mClientWidth, mClientHeight);
+	if (mColors.count("normal"))
+		mColors["normal"]->Resize(mClientWidth, mClientHeight);
 	if (mColors.count("AmbientBuffer0"))
 		mColors["AmbientBuffer0"]->Resize(HalfWidth, HalfHeight);
 	if (mColors.count("AmbientBuffer1"))
@@ -845,7 +845,7 @@ void SSAOApp::DrawScene()
 
 void SSAOApp::BlurAmbientMap(UINT nCount)
 {
-	std::vector<ID3D11SamplerState*> Sampler = { GetSampler("randomVec") };
+	std::vector<ID3D11SamplerState*> Sampler = { GetSampler("border") };
 	md3dImmediateContext->PSSetSamplers(0, Sampler.size(), Sampler.data());
 
     for(UINT i = 0; i < nCount; ++i)
@@ -881,14 +881,13 @@ void SSAOApp::Blur1D(bool bHorzBlur)
 		std::swap(rtv, srv);
 
 	ShaderCheckResource(PixelShader, D3D_SIT_TEXTURE, 0, "gInputImage");
-	ShaderCheckResource(PixelShader, D3D_SIT_TEXTURE, 1, "gNormalDepthMap");
 
 	std::vector<ID3D11ShaderResourceView*> SRV = { nullptr, nullptr };
 	std::vector<ID3D11RenderTargetView*> RTV = { nullptr };
 	md3dImmediateContext->PSSetShaderResources(0, SRV.size(), SRV.data());
 	md3dImmediateContext->OMSetRenderTargets(RTV.size(), RTV.data(), nullptr);
 
-	SRV = { mColors[srv]->GetSRV(), mColors["normalDepth"]->GetSRV() };
+	SRV = { mColors[srv]->GetSRV() };
 	RTV = { mColors[rtv]->GetRTV() };
 
 	// BindShaderResource(0, mColors[srv]->GetSRV());
@@ -1004,9 +1003,17 @@ void SSAOApp::ComputeSSAO()
 	std::vector<ID3D11Buffer*> Buffer = { buffer.Resource(0) };
 	md3dImmediateContext->VSSetConstantBuffers(0, Buffer.size(), Buffer.data());
 	md3dImmediateContext->PSSetConstantBuffers(0, Buffer.size(), Buffer.data());
-	std::vector<ID3D11SamplerState*> Sampler = { GetSampler("normalDepth"), GetSampler("randomVec") };
+	std::vector<ID3D11SamplerState*> Sampler = {
+		GetSampler("normal"),
+		GetSampler("depth"),
+		GetSampler("randomVec") 
+	};
 	md3dImmediateContext->PSSetSamplers(0, Sampler.size(), Sampler.data());
-	std::vector<ID3D11ShaderResourceView*> SRV = { mColors["normalDepth"]->GetSRV(), mColors["randomVec"]->GetSRV() };
+	std::vector<ID3D11ShaderResourceView*> SRV = { 
+		mColors["normal"]->GetSRV(),
+		mDepths["depthBuffer"]->GetSRV(),
+		mColors["randomVec"]->GetSRV() 
+	};
 	md3dImmediateContext->PSSetShaderResources(0, SRV.size(), SRV.data());
 
 	md3dImmediateContext->IASetVertexBuffers(0, 0, nullptr, nullptr, nullptr);
@@ -1711,27 +1718,39 @@ void SSAOApp::BuildPSO()
 	nors.CullMode = D3D11_CULL_NONE;
 	CreateResterizerState("nowireframe", nors);
 
-	auto normalDepth = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
-	normalDepth.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
-	normalDepth.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
-	normalDepth.AddressV = D3D11_TEXTURE_ADDRESS_BORDER;
-	normalDepth.BorderColor[0] = 0.f;
-	normalDepth.BorderColor[1] = 0.f;
-	normalDepth.BorderColor[2] = 0.f;
-	normalDepth.BorderColor[3] = 1e5f;
-	CreateSampler("normalDepth", normalDepth);
+	auto normal = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
+	normal.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+	normal.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
+	normal.AddressV = D3D11_TEXTURE_ADDRESS_BORDER;
+	normal.BorderColor[0] = 0.f;
+	normal.BorderColor[1] = 0.f;
+	normal.BorderColor[2] = 0.f;
+	CreateSampler("normal", normal);
+
+	auto depth = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
+	depth.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+	depth.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
+	depth.AddressV = D3D11_TEXTURE_ADDRESS_BORDER;
+	depth.BorderColor[0] = 1e5f;
+	CreateSampler("depth", depth);
 
 	auto randomVec = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
-	randomVec.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+	randomVec.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
 	randomVec.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
 	randomVec.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
 	CreateSampler("randomVec", randomVec);
 
+	auto border = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
+	border.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+	border.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+	border.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+	CreateSampler("border", border);
+
 	PipelineStateDesc NormalDepthState { "flat", "normalDepth", "normalDepth" };
-	auto NormalDepth = CreateColorBuffer("normalDepth", mClientWidth, mClientHeight, 1, DXGI_FORMAT_R16G16B16A16_FLOAT);
-	auto DepthBuffer = CreateDepthBuffer("depthBuffer", mClientWidth, mClientHeight, DXGI_FORMAT_R24_UNORM_X8_TYPELESS);
+	auto Normal = CreateColorBuffer("normal", mClientWidth, mClientHeight, 1, DXGI_FORMAT_R16G16B16A16_FLOAT);
+	auto DepthBuffer = CreateDepthBuffer("depthBuffer", mClientWidth, mClientHeight, DXGI_FORMAT_R32_TYPELESS);
 	auto NormalDepthRenderTarget = CreateRenderTarget("normalDepth");
-	NormalDepthRenderTarget->SetColor(Slot::Color0, NormalDepth);
+	NormalDepthRenderTarget->SetColor(Slot::Color0, Normal);
 	NormalDepthRenderTarget->SetDepth(DepthBuffer);
 	NormalDepthState.RT = "normalDepth";
 	CreatePSO("NormalDepth", NormalDepthState);
@@ -1765,7 +1784,7 @@ void SSAOApp::BuildPSO()
 	auto ComputeSSAOTarget = CreateRenderTarget("ssao");
 	ComputeSSAOTarget->SetColor(Slot::Color0, mColors["AmbientBuffer0"]);
 	ComputeSSAOState.RT = "ssao";
-	ComputeSSAOState.BindSampler(VertexShader, { "normalDepth", "randomeVec" });
+	ComputeSSAOState.BindSampler(VertexShader | PixelShader, { "normal", "depth", "randomeVec" });
 	CreatePSO("ComputeSSAO", ComputeSSAOState);
 
 	auto DrawRenderTarget = CreateRenderTarget("draw");

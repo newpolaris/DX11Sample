@@ -91,7 +91,7 @@ VS_OUTPUT GeometryVS( VS_INPUT input )
 
 float4 GeometryPS( PS_INPUT In ) : SV_Target
 {
-	return float4(normalize(In.NormalV), In.PositionV.z);
+	return float4(normalize(In.NormalV), 0.f);
 }
 
 //-----------------------------------------------------------------------------
