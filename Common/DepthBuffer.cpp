@@ -185,5 +185,6 @@ void DepthBuffer::Clear(bool bClearDepth, bool bClearStencil)
 		ClearFlags |= D3D11_CLEAR_DEPTH;
 	if (bClearStencil)
 		ClearFlags |= D3D11_CLEAR_STENCIL;
-	m_pContext->ClearDepthStencilView(m_DSV.Get(), ClearFlags, m_ClearDepth, m_ClearStencil);
+	if (ClearFlags)
+		m_pContext->ClearDepthStencilView(m_DSV.Get(), ClearFlags, m_ClearDepth, m_ClearStencil);
 }

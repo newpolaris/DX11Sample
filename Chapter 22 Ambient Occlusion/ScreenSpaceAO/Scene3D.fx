@@ -85,13 +85,13 @@ VS_OUTPUT GeometryVS( VS_INPUT input )
     VS_OUTPUT output;
     output.HPosition = mul( float4(input.Pos,1), g_WorldViewProjection );
     output.PositionV = mul( input.Pos, (float3x3)g_WorldView );
-	output.NormalV = mul(input.Pos, (float3x3)g_WorldView);
+	output.NormalV = mul(input.Norm, (float3x3)g_WorldView);
     return output;
 }
 
 float4 GeometryPS( PS_INPUT In ) : SV_Target
 {
-	return float4(normalize(In.NormalV), 0.f);
+	return float4(normalize(In.NormalV), In.PositionV.z);
 }
 
 //-----------------------------------------------------------------------------

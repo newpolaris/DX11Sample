@@ -70,7 +70,7 @@ SceneBinFile g_SceneBinFiles[NUM_BIN_FILES];
 SceneRenderer g_pSceneRenderer;
 
 static int g_CurrentSceneId = 3;
-static float gRaidus = 0.05;
+static float gRaidus = 0.5;
 
 struct Scene
 {
@@ -908,7 +908,6 @@ void SSAOApp::ShaderCheckResource(ShaderType Type, D3D_SHADER_INPUT_TYPE InputTy
 void SSAOApp::DrawSceneWithSSAO()
 {
 	m_RenderTargetBuffer->Clear();
-	mDepths["depthBuffer"]->Clear();
 
 	std::vector<ID3D11SamplerState*> Sampler = { GetSampler("anisotropicWrap") };
 	md3dImmediateContext->PSSetSamplers(0, Sampler.size(), Sampler.data());
@@ -980,7 +979,7 @@ void SSAOApp::ComputeSSAO()
 		XMFLOAT4   gOffsetVectors[kernelSize];
 
 		// Coordinates given in view space.
-		float    gOcclusionRadius = 0.05f;
+		float    gOcclusionRadius = 0.5f;
 		float    gOcclusionFadeStart = 0.2f;
 		float    gOcclusionFadeEnd = 2.0f;
 		float    gSurfaceEpsilon = 0.05f;
@@ -1726,7 +1725,7 @@ void SSAOApp::BuildPSO()
 	depth.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
 	depth.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
 	depth.AddressV = D3D11_TEXTURE_ADDRESS_BORDER;
-	depth.BorderColor[0] = 1e5f;
+	depth.BorderColor[0] = 1.f;
 	CreateSampler("depth", depth);
 
 	auto randomVec = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
@@ -1743,6 +1742,7 @@ void SSAOApp::BuildPSO()
 
 	PipelineStateDesc NormalDepthState { "flat", "normalDepth", "normalDepth" };
 	auto Normal = CreateColorBuffer("normal", mClientWidth, mClientHeight, 1, DXGI_FORMAT_R16G16B16A16_FLOAT);
+	Normal->SetColor(Color(0.0f, 0.0f, -1.0f, 1e5f));
 	auto DepthBuffer = CreateDepthBuffer("depthBuffer", mClientWidth, mClientHeight, DXGI_FORMAT_R32_TYPELESS);
 	auto NormalDepthRenderTarget = CreateRenderTarget("normalDepth");
 	NormalDepthRenderTarget->SetColor(Slot::Color0, Normal);

@@ -1,4 +1,6 @@
 #define kernelSize  64
+#define DEPTH32
+
 cbuffer cbSsao : register(b0)
 {
 	float4x4 gProj;
@@ -74,8 +76,12 @@ float4 PS(VertexOut pin) : SV_Target
 	// Get viewspace normal and z-coord of this pixel.  The tex-coords for
 	// the fullscreen quad we drew are already in uv-space.
 	float3 normal = normalize(gNormalMap.SampleLevel(gSamNormal, pin.TexC, 0.0f).xyz);
+#ifdef DEPTH32
 	float pz = gDepthMap.SampleLevel(gSamDepth, pin.TexC, 0.0f).x;
-	// pz = NdcDepthToViewDepth(pz);
+	pz = NdcDepthToViewDepth(pz);
+#else
+	float pz = gNormalMap.SampleLevel(gSamDepth, pin.TexC, 0.0f).w;
+#endif
 
 	//
 	// Reconstruct full view space position (x,y,z).
@@ -111,8 +117,12 @@ float4 PS(VertexOut pin) : SV_Target
 		// the depth of q, as q is just an arbitrary point near p and might
 		// occupy empty space).  To find the nearest depth we look it up in the depthmap.
 
+#ifdef DEPTH32
 		float sampleDepth = gDepthMap.SampleLevel(gSamDepth, offset.xy, 0.0f).r;
-        // sampleDepth = NdcDepthToViewDepth(sampleDepth);
+        sampleDepth = NdcDepthToViewDepth(sampleDepth);
+#else
+		float sampleDepth = gNormalMap.SampleLevel(gSamDepth, offset.xy, 0.0f).w;
+#endif
 
 		// float rangeCheck = abs(pz - sampleDepth) < gOcclusionRadius ? 1.0 : 0.0;
 		// float rangeCheck = smoothstep(0.0, 1.0, gOcclusionRadius / abs(pz - sampleDepth));
