@@ -636,12 +636,6 @@ void SSAOApp::BlurAmbientMap(UINT nCount)
 	std::vector<ID3D11SamplerState*> Sampler = { GetSampler("border") };
 	md3dImmediateContext->PSSetSamplers(0, Sampler.size(), Sampler.data());
 
-	Blur1D(true);
-	Blur1D(false);
-}
-
-void SSAOApp::Blur1D(bool bHorzBlur)
-{
 	__declspec(align(16)) struct BlurConstants
 	{
 		float gTexelWidth;
@@ -659,9 +653,6 @@ void SSAOApp::Blur1D(bool bHorzBlur)
 
 	std::string srv = "AmbientBuffer0";
 	std::string rtv = "AmbientBuffer1";
-
-	if (!bHorzBlur)
-		std::swap(rtv, srv);
 
 	ShaderCheckResource(PixelShader, D3D_SIT_TEXTURE, 0, "gInputImage");
 
@@ -700,7 +691,7 @@ void SSAOApp::DrawSceneWithSSAO()
 	std::vector<ID3D11SamplerState*> Sampler = { GetSampler("anisotropicWrap") };
 	md3dImmediateContext->PSSetSamplers(0, Sampler.size(), Sampler.data());
 
-	std::vector<ID3D11ShaderResourceView*> SRV = { mColors["AmbientBuffer0"]->GetSRV() };
+	std::vector<ID3D11ShaderResourceView*> SRV = { mColors["AmbientBuffer1"]->GetSRV() };
 	ShaderCheckResource(PixelShader, D3D_SIT_TEXTURE, 0, "tAO");
 
 	md3dImmediateContext->PSSetShaderResources(0, SRV.size(), SRV.data());
