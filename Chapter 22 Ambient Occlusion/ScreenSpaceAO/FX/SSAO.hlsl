@@ -1,6 +1,8 @@
 #define kernelSize  64
 #define DEPTH32
-#define RANGE_CHECK
+// #define RANGE_METHOD0
+#define SELF_OCC_REMOVE
+// #define GATHERING
 
 cbuffer cbSsao : register(b0)
 {
@@ -14,6 +16,12 @@ cbuffer cbSsao : register(b0)
 	float    gOcclusionFadeStart = 0.2f;
 	float    gOcclusionFadeEnd   = 2.0f;
 	float    gSurfaceEpsilon     = 0.05f;
+	// g_scale: scales distance between occluders and occludee.
+    // g_bias: controls the width of the occlusion cone considered by the occludee.
+    // g_intensity: the ao intensity.
+	float    gScale              = 1.f;
+	float    gBias               = 0.1f;
+	float    gIntencity          = 2.f;
 };
 
 Texture2D gNormalMap      : register(t0);
@@ -36,6 +44,12 @@ static const float2 gTexCoords[6] =
     float2(1.0f, 1.0f)
 };
  
+struct VertexIn
+{
+	float3 PosH : POSITION;
+	float2 TexC : TEXCOORD;
+};
+
 struct VertexOut
 {
     float4 PosH : SV_POSITION;
@@ -43,23 +57,19 @@ struct VertexOut
 	float2 TexC : TEXCOORD0;
 };
 
-VertexOut VS(uint vid : SV_VertexID)
+VertexOut VS(VertexIn vin)
 {
     VertexOut vout;
 
-    vout.TexC = gTexCoords[vid];
-
-    // Quad covering screen in NDC space ( near plain)
-    vout.PosH = float4(2.0f*vout.TexC.x - 1.0f, 1.0f - 2.0f*vout.TexC.y, 0.0f, 1.0f);
- 
+	vout.PosH = float4(vin.PosH, 1.f);
     // Transform quad corners to view space near plane.
     float4 ph = mul(vout.PosH, gInvProj);
 	// divide w to convert view space (after invProj z = 1, w = 1/z)
     vout.PosV = ph.xyz / ph.w;
+	vout.TexC = vin.TexC;
 
     return vout;
 }
-
 float NdcDepthToViewDepth(float z_ndc)
 {
     // z_ndc = A + B/viewZ, where gProj[2,2]=A and gProj[3,2]=B.
@@ -67,34 +77,59 @@ float NdcDepthToViewDepth(float z_ndc)
     return viewZ;
 }
 
+float gather_occulusion(float3 p, float3 n, float3 occ_p)
+{
+	float3 v = occ_p - p;
+	float d = length(v);
+	v /= d;
+	d *= gScale;
+	return max(0.f, dot(n, v) - gBias) * (1.f / (1 + d)) * gIntencity;
+}
+
+float sample_depth(float2 coord)
+{
+#ifdef DEPTH32
+	float depth = gDepthMap.SampleLevel(gSamDepth, coord, 0.0f).x;
+	return NdcDepthToViewDepth(depth);
+#else
+	return gNormalMap.SampleLevel(gSamDepth, coord, 0.0f).w;
+#endif
+}
+
+float3 sample_position(float3 pos, float depth)
+{
+	return (depth/pos.z)*pos;	
+}
+
+float3 sample_normal(float2 coord)
+{
+	return normalize(gNormalMap.SampleLevel(gSamNormal, coord, 0.0f).xyz);
+}
+
+float3 sample_random(float2 coord)
+{
+	return gRandomVecMap.SampleLevel(gSamRandomVec, coord, 0.0f).rgb;
+}
+
+float other_occlusion(float src_depth, float occ_depth, float3 target_position, float3 src_position, float3 normal)
+{
+#ifdef RANGE_METHOD0
+		float rangeCheck = abs(src_depth - occ_depth) < gOcclusionRadius ? 1.0 : 0.0;
+#else
+		float rangeCheck = smoothstep(0.0, 1.0, gOcclusionRadius / abs(src_depth - occ_depth));
+#endif
+		float dp = max(dot(normal, normalize(target_position - src_position)), 0.0f);
+		return (occ_depth <= target_position.z ? 1.0 : 0.0) * rangeCheck * dp;
+}
+
 float4 PS(VertexOut pin) : SV_Target
 {
-	// p -- the point we are computing the ambient occlusion for.
-	// n -- normal vector at p.
-	// q -- a random offset from p.
-	// r -- a potential occluder that might occlude p.
+	float3 normal = sample_normal(pin.TexC);
+	float src_depth = sample_depth(pin.TexC);
+	float3 src_position = sample_position(pin.PosV, src_depth);
+	float3 random = sample_random(gNoiseScale*pin.TexC);
 
-	// Get viewspace normal and z-coord of this pixel.  The tex-coords for
-	// the fullscreen quad we drew are already in uv-space.
-	float3 normal = normalize(gNormalMap.SampleLevel(gSamNormal, pin.TexC, 0.0f).xyz);
-#ifdef DEPTH32
-	float pz = gDepthMap.SampleLevel(gSamDepth, pin.TexC, 0.0f).x;
-	pz = NdcDepthToViewDepth(pz);
-#else
-	float pz = gNormalMap.SampleLevel(gSamDepth, pin.TexC, 0.0f).w;
-#endif
-
-	//
-	// Reconstruct full view space position (x,y,z).
-	// Find t such that p = t*pin.ToFarPlane.
-	// p.z = t*pin.ToFarPlane.z
-	// t = p.z / pin.ToFarPlane.z
-	//
-	float3 p = (pz/pin.PosV.z)*pin.PosV;	
-
-	float3 randomVec = gRandomVecMap.SampleLevel(gSamRandomVec, gNoiseScale*pin.TexC, 0.0f).rgb;
-
-	float3 tangent = normalize(randomVec - normal * dot(randomVec, normal));
+	float3 tangent = normalize(random - normal * dot(random, normal));
 	float3 bitangent = cross(normal, tangent);
 	float3x3 tbn = float3x3(tangent, bitangent, normal);
 
@@ -103,38 +138,27 @@ float4 PS(VertexOut pin) : SV_Target
 	[unroll]
 	for(int i = 0; i < gSampleCount; ++i)
 	{
-		float3 Sample = mul(gOffsetVectors[i].xyz, tbn);
-		Sample = p + Sample * gOcclusionRadius;
+		float3 offset = mul(gOffsetVectors[i].xyz, tbn);
+		float3 target_position = src_position + offset * gOcclusionRadius;
 	
-		// Project q and generate projective tex-coords.  
-#ifndef PROJ_TEX
-		float4 offset = float4(Sample, 1.0f);
-		offset = mul(offset, gProj);
-		offset.xy /= offset.w;
-		offset.xy = offset.xy * 0.5 + 0.5;
-#else
-		float4 offset = mul(float4(Sample, 1.0f), gProjTex);
-		offset /= offset.w;
-#endif
+		// Project and generate projective tex-coords.  
+		float4 occ_tex = mul(float4(target_position, 1.0f), gProjTex);
+		float2 occ_coord = occ_tex.xy / occ_tex.w;
 
 		// Find the nearest depth value along the ray from the eye to q (this is not
 		// the depth of q, as q is just an arbitrary point near p and might
 		// occupy empty space).  To find the nearest depth we look it up in the depthmap.
+		float occ_depth = sample_depth(occ_coord);
 
-#ifdef DEPTH32
-		float sampleDepth = gDepthMap.SampleLevel(gSamDepth, offset.xy, 0.0f).r;
-        sampleDepth = NdcDepthToViewDepth(sampleDepth);
+#ifdef GATHERING
+		[branch]
+		if (occ_depth < src_depth) {
+			float3 occ_point = sample_position(target_position, occ_depth);
+			occlusion += gather_occulusion(src_position, normal, occ_point);
+		}
 #else
-		float sampleDepth = gNormalMap.SampleLevel(gSamDepth, offset.xy, 0.0f).w;
+		occlusion += other_occlusion(src_depth, occ_depth, target_position, src_position, normal);
 #endif
-
-#ifdef RANGE_CHECK
-		float rangeCheck = smoothstep(0.0, 1.0, gOcclusionRadius / abs(pz - sampleDepth));
-		// float rangeCheck = abs(pz - sampleDepth) < gOcclusionRadius ? 1.0 : 0.0;
-#else
-		float rangeCheck = 1.0f;
-#endif
-		occlusion += (sampleDepth <= Sample.z ? 1.0 : 0.0) * rangeCheck;
 	}
 	occlusion /= gSampleCount;
 	

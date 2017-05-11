@@ -12,12 +12,10 @@ struct Vertex
 struct VertexTex
 {
 	VertexTex() = default;
-	VertexTex(float x, float y, float z, float nx, float ny, float nz, float u, float v) :
+	VertexTex(float x, float y, float z, float u, float v) :
 		Pos(x, y, z),
-		Normal(nx, ny, nz),
 		Tex(u, v) {}
 	XMFLOAT3 Pos;
-	XMFLOAT3 Normal;
 	XMFLOAT2 Tex;
 };
 

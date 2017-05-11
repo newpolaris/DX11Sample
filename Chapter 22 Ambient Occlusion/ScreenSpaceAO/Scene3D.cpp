@@ -73,6 +73,7 @@ void SceneRenderer::RecompileShader()
     m_CopyColorPass          = m_Effect->GetTechniqueByName("CopyColor")->GetPassByIndex(0);
     m_VarWVP                 = m_Effect->GetVariableByName("g_WorldViewProjection")->AsMatrix();
     m_VarWV                  = m_Effect->GetVariableByName("g_WorldView")->AsMatrix();
+    m_VarW                   = m_Effect->GetVariableByName("g_World")->AsMatrix();
     m_VarIsWhite             = m_Effect->GetVariableByName("g_IsWhite")->AsScalar();
 }
 
@@ -147,10 +148,12 @@ HRESULT SceneRenderer::OnFrameRender(const D3DXMATRIX *p_mWorld,
     // Compute view matrices
     D3DXMATRIX WVPMatrix = (*p_mWorld) * (*p_mView) * (*p_mProj);
     D3DXMATRIX WVMatrix  = (*p_mWorld) * (*p_mView);
+	D3DXMATRIX WMatrix   = (*p_mWorld);
 
     // Set effect variables
     m_VarWVP->SetMatrix(WVPMatrix);
     m_VarWV->SetMatrix(WVMatrix);
+    m_VarW->SetMatrix(WMatrix);
     m_VarIsWhite->SetBool(!pMesh->UseShading());
 
     // Draw mesh

@@ -14,6 +14,7 @@
 
 matrix g_WorldViewProjection;
 matrix g_WorldView;
+matrix g_World;
 bool   g_IsWhite;
 
 Texture2D<float3> tColor;
@@ -39,7 +40,8 @@ struct VS_OUTPUT
 {
     float4 HPosition    : SV_POSITION;
     float3 PositionV    : POSITION;
-    float3 NormalV      : NORMAL;
+    float3 NormalV      : NORMAL0;
+	float3 NormalW      : NORAML1;
 };
 
 struct PS_INPUT
@@ -47,12 +49,19 @@ struct PS_INPUT
     float4 HPosition    : SV_POSITION;
     float3 PositionV    : POSITION;
     float3 NormalV      : NORMAL;
+	float3 NormalW      : NORAML1;
 };
 
 struct PostProc_VSOut
 {
-    float4 pos : SV_Position;
-    float2 uv  : TexCoord;
+    float4 pos          : SV_Position;
+    float2 uv           : TexCoord;
+};
+
+struct PSOutput
+{
+	float4 Normal        : SV_Target0;
+	float4 Diffuse       : SV_Target1;
 };
 
 //-----------------------------------------------------------------------------
@@ -86,12 +95,18 @@ VS_OUTPUT GeometryVS( VS_INPUT input )
     output.HPosition = mul( float4(input.Pos,1), g_WorldViewProjection );
     output.PositionV = mul( input.Pos, (float3x3)g_WorldView );
 	output.NormalV = mul(input.Norm, (float3x3)g_WorldView);
+	output.NormalW = mul(input.Norm, (float3x3)g_World);
     return output;
 }
 
-float4 GeometryPS( PS_INPUT In ) : SV_Target
+PSOutput GeometryPS( PS_INPUT In )
 {
-	return float4(normalize(In.NormalV), In.PositionV.z);
+	PSOutput output;
+	output.Normal = float4(normalize(In.NormalV), In.PositionV.z);
+	float3 light = normalize(float3(-1, 2, 1));
+	float intensity = dot(normalize(In.NormalW), light) * 0.5 + 0.5;
+	output.Diffuse = float4(.457, .722, 0.0, 1) * lerp(float4(0, 0.25, 0.75, 0), float4(1, 1, 1, 0), intensity);
+	return output;
 }
 
 //-----------------------------------------------------------------------------

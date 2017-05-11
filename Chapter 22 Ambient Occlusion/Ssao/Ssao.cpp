@@ -61,7 +61,7 @@ void Ssao::SetNormalDepthRenderTarget(ID3D11DepthStencilView* dsv)
     mDC->OMSetRenderTargets(1, renderTargets, dsv);
 
 	// Clear view space normal to (0,0,-1) and clear depth to be very far away.  
-	float clearColor[] = {0.0f, 0.0f, -1.0f, 1e5f};
+	float clearColor[] = {0.0f, 0.0f, -1.0f, 1};
 	mDC->ClearRenderTargetView(mNormalDepthRTV, clearColor);
 }
 

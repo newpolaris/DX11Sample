@@ -70,7 +70,8 @@ SceneBinFile g_SceneBinFiles[NUM_BIN_FILES];
 SceneRenderer g_pSceneRenderer;
 
 static int g_CurrentSceneId = 3;
-static float gRaidus = 0.5;
+static float gRaidus = 0.1;
+static float m_fScaling = 20;
 
 struct Scene
 {
@@ -95,7 +96,6 @@ public:
 	void UpdateScene(float dt);
 	void DrawScene();
 	void BlurAmbientMap(UINT nCount);
-	void Blur1D(bool bHorzBlur);
 	void ShaderCheckResource(ShaderType Type, D3D_SHADER_INPUT_TYPE InputType, UINT Slot, std::string Name);
 	void DrawSceneWithSSAO();
 	void ComputeSSAO();
@@ -113,17 +113,21 @@ private:
 	DepthBufferPtr CreateDepthBuffer(std::string name, uint32_t Width, uint32_t Height, DXGI_FORMAT Format);
 	void CreateSampler(std::string name, const CD3D11_SAMPLER_DESC & desc);
 	void BuildFX();
+	BOOL BuildGeometry();
 	void CreateBlendState(const std::string& tag, const D3D11_BLEND_DESC & desc);
 	void CreateDepthStencilState(const std::string& tag, const D3D11_DEPTH_STENCIL_DESC& desc);
 	void CreateResterizerState(const std::string & tag, const D3D11_RASTERIZER_DESC & desc);
 	void BuildPSO();
 	void UpdateCamera(float dt);
+	void BuildScreenQuad();
 	void BuildStaticSamplers();
 	void ApplyPipelineState(const std::string& tag);
 	void FrameRender(double fTime, float fElapsedTime, void * pUserContext);
 
 	ID3D11SamplerState * GetSampler(const std::string & name);
 	ID3DBlob* GetShaderBlob(ShaderType Type, std::string Name);
+
+	void BuildVertexLayout();
 
 private:
 	std::unordered_map<std::string, ShaderPtr> m_Shaders[NumShader];
@@ -150,7 +154,6 @@ private:
 	D3D11_VIEWPORT m_HalfViewport;
 	PipelineStateObject* m_pCurrentPSO = nullptr;
 
-	XMFLOAT3 mEyePos = { 0.0f, 0.0f, 0.0f };
 	XMMATRIX mView = XMMatrixIdentity();
 	XMMATRIX mProj = XMMatrixIdentity();
 
@@ -176,8 +179,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
  
 
 SSAOApp::SSAOApp(HINSTANCE hInstance)
-: D3DApp(hInstance),
-  mEyePos(0.0f, 0.0f, 0.0f)
+: D3DApp(hInstance)
 {
 	mMainWndCaption = L"SSAO Demo";
 	
@@ -186,10 +188,11 @@ SSAOApp::SSAOApp(HINSTANCE hInstance)
 
 	m_RenderTargetBuffer = std::make_shared<ColorBuffer>();
 
-	XMFLOAT3 eye(2.3372846f, 2.059336402f, 2.057159711f);
+	XMFLOAT3 eye(73.372846f, 70.59336402f, 70.57159711f);
 	XMFLOAT3 target(0.08971950f, -0.01976534f, 0.03737334f);
 	XMFLOAT3 up(0.f, 1.0, 0.0);
 	mCam.LookAt(eye, target, up);
+	mCam.Zoom(m_fScaling);
 }
 
 SSAOApp::~SSAOApp()
@@ -203,6 +206,8 @@ bool SSAOApp::Init()
 
 	BuildStaticSamplers();
 	BuildFX();
+	BuildVertexLayout();
+	BuildGeometry();
 	BuildViewDependentResource();
 	BuildPSO();
 
@@ -277,7 +282,7 @@ void SSAOApp::OnResize()
     {
         g_SceneBinFiles[i].OnResizedSwapChain(md3dDevice, mClientWidth, mClientHeight);
     }
-	mCam.SetLens(0.05f*MathHelper::Pi, AspectRatio(), 0.1f, 1000000.0f);
+	mCam.SetLens(0.05f*MathHelper::Pi, AspectRatio(), 1.f, 1000.0f);
 }
 
 
@@ -307,6 +312,24 @@ ID3DBlob* SSAOApp::GetShaderBlob(ShaderType Type, std::string Name)
 {
 	assert(m_Shaders[Type].count( Name ));
 	return m_Shaders[Type][Name]->m_CompiledShader.Get();
+}
+
+void SSAOApp::BuildVertexLayout()
+{
+	// Create the vertex input layout.
+	std::vector<D3D11_INPUT_ELEMENT_DESC> ILTex = {
+		{"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+		{"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
+	};
+
+	ComPtr<ID3D11InputLayout> pLayoutTex;
+	HR(md3dDevice->CreateInputLayout(
+		ILTex.data(),
+		ILTex.size(),
+		GetShaderBlob(VertexShader, "ssao")->GetBufferPointer(),
+		GetShaderBlob(VertexShader, "ssao")->GetBufferSize(),
+		pLayoutTex.GetAddressOf()));
+	mInputLayout["tex"] = pLayoutTex;
 }
 
 void SSAOApp::UpdateScene(float dt)
@@ -343,6 +366,8 @@ void SSAOApp::UpdateScene(float dt)
 
 void SSAOApp::OnKeyBoardInput(float dt)
 {
+	if (GetAsyncKeyState('0') & 0x8000)
+		mState = 0;
 	if (GetAsyncKeyState('1') & 0x8000)
 		mState = 1;
 	if (GetAsyncKeyState('2') & 0x8000)
@@ -376,11 +401,18 @@ void SSAOApp::OnKeyBoardInput(float dt)
 	if( GetAsyncKeyState('D') & 0x8000 )
 		mCam.Strafe(1.0f*dt);
 
-	if (GetAsyncKeyState('Z') & 0x8000)
-		mCam.Zoom(dt*0.1);
-
-	if( GetAsyncKeyState('X') & 0x8000 )
-		mCam.Zoom(-dt*0.1);
+	if (GetAsyncKeyState('Z') & 0x8000) {
+		m_fScaling += dt;
+		mCam.Zoom(m_fScaling);
+	}
+	if (GetAsyncKeyState('X') & 0x8000) {
+		m_fScaling -= dt;
+		mCam.Zoom(m_fScaling);
+	}
+	if (GetAsyncKeyState('U') & 0x8000)
+		mCam.Rate(dt);
+	if (GetAsyncKeyState('I') & 0x8000)
+		mCam.Rate(-dt);
 }
 
 void SSAOApp::UpdateCamera(float dt)
@@ -483,7 +515,10 @@ void SSAOApp::FrameRender(double fTime, float fElapsedTime, void* pUserContext)
             D3DXMATRIX IdentityMatrix((float*)&R);
 			if (g_CurrentSceneId != 5)
 				D3DXMatrixIdentity(&IdentityMatrix);
-            g_pSceneRenderer.OnFrameRender(&IdentityMatrix,
+			D3DXMATRIX scaling, target;
+			D3DXMatrixScaling(&scaling, m_fScaling, m_fScaling, m_fScaling);
+			D3DXMatrixMultiply(&target, &IdentityMatrix, &scaling);
+            g_pSceneRenderer.OnFrameRender(&target,
 				(D3DXMATRIX*)&mView,
 				(D3DXMATRIX*)&mProj,
 				pMesh);
@@ -574,7 +609,7 @@ void SSAOApp::DrawScene()
 {
 	md3dImmediateContext->RSSetViewports(1, &mScreenViewport);
 
-	if (mState == 1)
+	if (mState == 1 || mState == 0)
 	{
 		ApplyPipelineState("NormalDepth");
 		md3dImmediateContext->RSSetState(mRasterizerState["nowireframe"].Get());
@@ -587,6 +622,11 @@ void SSAOApp::DrawScene()
 		BlurAmbientMap(1);
 
 		ApplyPipelineState("Composite");
+		std::array<FLOAT, 4> BlendFactor = { 1.f, 1.f, 1.f, 1.f };
+		UINT SampleMask = 0xFFFFFFFF;
+		if (mState == 1) {
+			md3dImmediateContext->OMSetBlendState(mBlendState["composite"].Get(), BlendFactor.data(), SampleMask);
+		}
 		DrawSceneWithSSAO();
 	}
 	else
@@ -657,8 +697,6 @@ void SSAOApp::ShaderCheckResource(ShaderType Type, D3D_SHADER_INPUT_TYPE InputTy
 
 void SSAOApp::DrawSceneWithSSAO()
 {
-	m_RenderTargetBuffer->Clear();
-
 	std::vector<ID3D11SamplerState*> Sampler = { GetSampler("anisotropicWrap") };
 	md3dImmediateContext->PSSetSamplers(0, Sampler.size(), Sampler.data());
 
@@ -733,6 +771,9 @@ void SSAOApp::ComputeSSAO()
 		float    gOcclusionFadeStart = 0.2f;
 		float    gOcclusionFadeEnd = 2.0f;
 		float    gSurfaceEpsilon = 0.05f;
+		float    gScale = 1.f;
+		float    gBias = 0.1f;
+		float    gIntencity = 1.5f;
 	};
 	static ConstantBuffer<SSAOConstants> buffer(md3dDevice, 1);
 	SSAOConstants ssaoCB;
@@ -760,10 +801,13 @@ void SSAOApp::ComputeSSAO()
 	};
 	md3dImmediateContext->PSSetShaderResources(0, SRV.size(), SRV.data());
 
-	md3dImmediateContext->IASetVertexBuffers(0, 0, nullptr, nullptr, nullptr);
-    md3dImmediateContext->IASetIndexBuffer(nullptr, DXGI_FORMAT_UNKNOWN, 0);
-    md3dImmediateContext->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	md3dImmediateContext->DrawInstanced(6, 1, 0, 0);
+	UINT stride = sizeof(VertexTex);
+    UINT offset = 0;
+	std::vector<ID3D11Buffer*> VB = { m_ScreenVertex.Get() };
+    md3dImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	md3dImmediateContext->IASetVertexBuffers(0, 1, VB.data(), &stride, &offset);
+	md3dImmediateContext->IASetIndexBuffer(m_ScreenIndex.Get(), DXGI_FORMAT_R16_UINT, 0);
+	md3dImmediateContext->DrawIndexed(6, 0, 0);
 }
 
 void SSAOApp::OnMouseDown(WPARAM btnState, int x, int y)
@@ -805,6 +849,37 @@ void SSAOApp::OnMouseMove(WPARAM btnState, int x, int y)
 
 	mLastMousePos.x = x;
 	mLastMousePos.y = y;
+}
+
+BOOL SSAOApp::BuildGeometry()
+{
+	BuildScreenQuad();
+	return TRUE;
+}
+
+void SSAOApp::BuildScreenQuad()
+{
+	VertexTex v[4];
+
+	v[0].Pos = XMFLOAT3(-1.0f, -1.0f, 0.0f);
+	v[1].Pos = XMFLOAT3(-1.0f, +1.0f, 0.0f);
+	v[2].Pos = XMFLOAT3(+1.0f, +1.0f, 0.0f);
+	v[3].Pos = XMFLOAT3(+1.0f, -1.0f, 0.0f);
+
+	v[0].Tex = XMFLOAT2(0.0f, 1.0f);
+	v[1].Tex = XMFLOAT2(0.0f, 0.0f);
+	v[2].Tex = XMFLOAT2(1.0f, 0.0f);
+	v[3].Tex = XMFLOAT2(1.0f, 1.0f);
+
+	m_ScreenVertex = d3dHelper::CreateVertexBuffer(md3dDevice, v, sizeof(v));
+
+	USHORT indices[6] = 
+	{
+		0, 1, 2,
+		0, 2, 3
+	};
+
+	m_ScreenIndex = d3dHelper::CreateIndexBuffer(md3dDevice, indices, sizeof(indices));
 }
 
 void SSAOApp::BuildStaticSamplers()
@@ -973,6 +1048,17 @@ void SSAOApp::BuildViewDependentResource()
 
 void SSAOApp::BuildPSO()
 {
+	CD3D11_BLEND_DESC BlendStateDesc(D3D11_DEFAULT);
+    BlendStateDesc.RenderTarget[0].BlendEnable = TRUE;
+    BlendStateDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+    BlendStateDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_ZERO;
+    BlendStateDesc.RenderTarget[0].DestBlend = D3D11_BLEND_SRC_COLOR;
+    BlendStateDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+    BlendStateDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ZERO;
+    BlendStateDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ONE;
+    BlendStateDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+	CreateBlendState("composite", BlendStateDesc);
+
 	CD3D11_RASTERIZER_DESC rs(D3D11_DEFAULT);
 	rs.FillMode = D3D11_FILL_WIREFRAME;
 	rs.CullMode = D3D11_CULL_NONE;
@@ -983,19 +1069,15 @@ void SSAOApp::BuildPSO()
 	CreateResterizerState("nowireframe", nors);
 
 	auto normal = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
-	normal.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
-	normal.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
-	normal.AddressV = D3D11_TEXTURE_ADDRESS_BORDER;
-	normal.BorderColor[0] = 0.f;
-	normal.BorderColor[1] = 0.f;
-	normal.BorderColor[2] = 0.f;
+	normal.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+	normal.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+	normal.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
 	CreateSampler("normal", normal);
 
 	auto depth = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
 	depth.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
-	depth.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
-	depth.AddressV = D3D11_TEXTURE_ADDRESS_BORDER;
-	depth.BorderColor[0] = 1.f;
+	depth.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+	depth.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
 	CreateSampler("depth", depth);
 
 	auto randomVec = CD3D11_SAMPLER_DESC(CD3D11_DEFAULT());
@@ -1012,47 +1094,44 @@ void SSAOApp::BuildPSO()
 
 	PipelineStateDesc NormalDepthState { "flat", "", "" };
 	auto Normal = CreateColorBuffer("normal", mClientWidth, mClientHeight, 1, DXGI_FORMAT_R16G16B16A16_FLOAT);
-#ifdef NON_ZERO_CLEAR 
 	Normal->SetColor(Color(0.0f, 0.0f, -1.0f, 1e5f));
-#endif
 	auto DepthBuffer = CreateDepthBuffer("depthBuffer", mClientWidth, mClientHeight, DXGI_FORMAT_R32_TYPELESS);
 	auto NormalDepthRenderTarget = CreateRenderTarget("normalDepth");
 	NormalDepthRenderTarget->SetColor(Slot::Color0, Normal);
+	NormalDepthRenderTarget->SetColor(Slot::Color1, m_RenderTargetBuffer);
 	NormalDepthRenderTarget->SetDepth(DepthBuffer);
 	NormalDepthState.RT = "normalDepth";
 	CreatePSO("NormalDepth", NormalDepthState);
 
 	std::uniform_real_distribution<float> randomFloats(0.0, 1.0); // random floats between 0.0 - 1.0
 	std::default_random_engine generator;
-	std::vector<XMFLOAT3> ssaoNoise;
-	const int noiseSize = 16;
-	for (uint16_t i = 0; i < noiseSize; i++)
+	std::vector<XMFLOAT4> ssaoNoise;
+	const int noiseSize = 4;
+	for (uint16_t i = 0; i < noiseSize*noiseSize; i++)
 	{
-		XMFLOAT3 noise(
+		XMFLOAT4 noise(
 			randomFloats(generator) * 2.0 - 1.0,
 			randomFloats(generator) * 2.0 - 1.0,
-			0.0f);
+			0.0f, 0.f);
 		ssaoNoise.push_back(noise);
 	}
 
-    XMFLOAT4 initData[noiseSize];
-    for (int i = 0; i < noiseSize; ++i)
-    {
-		auto& v = ssaoNoise[i];
-		initData[i] = XMFLOAT4(v.x, v.y, v.z, 0.0f);
-    }
-
+	static_assert(sizeof(XMFLOAT4) == 16, "it must be 16 byte");
     D3D11_SUBRESOURCE_DATA subResourceData = {0};
-    subResourceData.pSysMem = initData;
+	subResourceData.pSysMem = ssaoNoise.data();
     subResourceData.SysMemPitch = noiseSize * sizeof(XMFLOAT4);
-	CreateColorBuffer("randomVec", 4, 4, 1, DXGI_FORMAT_R16G16B16A16_FLOAT, &subResourceData);
+	CreateColorBuffer("randomVec", noiseSize, noiseSize, 1, DXGI_FORMAT_R32G32B32A32_FLOAT, &subResourceData);
 
-	PipelineStateDesc ComputeSSAOState { "", "ssao", "ssao" };
+	PipelineStateDesc ComputeSSAOState { "tex", "ssao", "ssao" };
 	auto ComputeSSAOTarget = CreateRenderTarget("ssao");
 	ComputeSSAOTarget->SetColor(Slot::Color0, mColors["AmbientBuffer0"]);
 	ComputeSSAOState.RT = "ssao";
 	ComputeSSAOState.BindSampler(VertexShader | PixelShader, { "normal", "depth", "randomeVec" });
 	CreatePSO("ComputeSSAO", ComputeSSAOState);
+
+	PipelineStateDesc BlurState { "", "blur", "blur" };
+	CreatePSO("BlurSSAO", BlurState);
+
 
 	auto DrawRenderTarget = CreateRenderTarget("draw");
 	DrawRenderTarget->SetColor(Slot::Color0, m_RenderTargetBuffer);
@@ -1061,11 +1140,7 @@ void SSAOApp::BuildPSO()
 	DrawRenderTarget->m_bClearDepth = false;
 	DrawRenderTarget->m_bClearStencil = false;
 
-	PipelineStateDesc BlurState { "", "blur", "blur" };
-	CreatePSO("BlurSSAO", BlurState);
-
 	PipelineStateDesc CompositeState { "", "composite", "composite" };
 	CompositeState.RT = "draw";
 	CreatePSO("Composite", CompositeState);
-
 }

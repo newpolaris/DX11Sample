@@ -21,6 +21,6 @@ PostProc_VSOut VS( uint id : SV_VertexID )
 float4 PS( PostProc_VSOut IN) : SV_TARGET
 {
     float ao = tAO.Sample(PointSampler, IN.uv);
-    return saturate(pow(ao, 2));
+    return saturate(pow(ao, 1));
 }
 
