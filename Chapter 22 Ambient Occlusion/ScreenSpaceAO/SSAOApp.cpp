@@ -7,6 +7,15 @@
 //
 //***************************************************************************************
 
+namespace 
+{
+	const int kernelSize = 64;
+	float occlusionRadius = 0.1;
+	float occlusionScale = 1.f;
+	float occlusionBias = 0.1f;
+	float occlusionIntencity = 1.5f;
+}
+
 #include <random>
 #include "d3dApp.h"
 #include "d3dx11Effect.h"
@@ -70,7 +79,6 @@ SceneBinFile g_SceneBinFiles[NUM_BIN_FILES];
 SceneRenderer g_pSceneRenderer;
 
 static int g_CurrentSceneId = 3;
-static float gRaidus = 0.1;
 static float m_fScaling = 20;
 
 struct Scene
@@ -359,7 +367,7 @@ void SSAOApp::UpdateScene(float dt)
 			<< L"X: " << mCam.GetPosition().x << L", "
 			<< L"Y: " << mCam.GetPosition().y << L", "
 			<< L"Z: " << mCam.GetPosition().y << L", "
-			<< L"Radius " << gRaidus;
+			<< L"Radius " << occlusionRadius;
 		SetWindowText(mhMainWnd, outs.str().c_str());
 	}
 }
@@ -385,9 +393,9 @@ void SSAOApp::OnKeyBoardInput(float dt)
 		g_CurrentSceneId = 7;
 
 	if (GetAsyncKeyState('F') & 0x8000)
-		gRaidus -= 0.05*dt;
+		occlusionRadius -= 0.05*dt;
 	if (GetAsyncKeyState('G') & 0x8000)
-		gRaidus += 0.05*dt;
+		occlusionRadius += 0.05*dt;
 
 	if( GetAsyncKeyState('W') & 0x8000 )
 		mCam.Walk(1.0f*dt);
@@ -713,7 +721,6 @@ float lerp(float a, float b, float f)
     return a + f * (b - a);
 }  
 
-const int kernelSize = 64;
 std::vector<XMFLOAT4> CalcOffsetVectors() 
 {
 	std::uniform_real_distribution<float> randomFloats(0.0, 1.0); // random floats between 0.0 - 1.0
@@ -765,19 +772,21 @@ void SSAOApp::ComputeSSAO()
 		XMFLOAT4X4 gInvProj;
 		XMFLOAT4X4 gProjTex;
 		XMFLOAT4   gOffsetVectors[kernelSize];
+		XMFLOAT2   gNoiseScale;
 
 		// Coordinates given in view space.
-		float    gOcclusionRadius = 0.5f;
-		float    gOcclusionFadeStart = 0.2f;
-		float    gOcclusionFadeEnd = 2.0f;
-		float    gSurfaceEpsilon = 0.05f;
-		float    gScale = 1.f;
-		float    gBias = 0.1f;
-		float    gIntencity = 1.5f;
+		float    gOcclusionRadius;
+		float    gScale;
+		float    gBias;
+		float    gIntencity;
 	};
 	static ConstantBuffer<SSAOConstants> buffer(md3dDevice, 1);
 	SSAOConstants ssaoCB;
-	ssaoCB.gOcclusionRadius = gRaidus;
+	ssaoCB.gOcclusionRadius = occlusionRadius;
+	ssaoCB.gScale = occlusionScale;
+	ssaoCB.gBias = occlusionBias;
+	ssaoCB.gIntencity = occlusionIntencity;
+	ssaoCB.gNoiseScale = { (float)mClientWidth / 4, (float)mClientHeight/ 4};
     XMStoreFloat4x4(&ssaoCB.gProj, mProj);
 	XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(mProj), mProj);
     XMStoreFloat4x4(&ssaoCB.gInvProj, invProj);

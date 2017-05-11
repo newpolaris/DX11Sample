@@ -1,4 +1,4 @@
-#define kernelSize  64
+#define kernelSize 64
 #define DEPTH32
 // #define RANGE_METHOD0
 #define SELF_OCC_REMOVE
@@ -10,12 +10,10 @@ cbuffer cbSsao : register(b0)
 	float4x4 gInvProj;
 	float4x4 gProjTex;
 	float4   gOffsetVectors[kernelSize];
+    float2   gNoiseScale = {1280.f / 4, 720.f / 4};
 
 	// Coordinates given in view space.
 	float    gOcclusionRadius    = 0.5f;
-	float    gOcclusionFadeStart = 0.2f;
-	float    gOcclusionFadeEnd   = 2.0f;
-	float    gSurfaceEpsilon     = 0.05f;
 	// g_scale: scales distance between occluders and occludee.
     // g_bias: controls the width of the occlusion cone considered by the occludee.
     // g_intensity: the ao intensity.
@@ -32,7 +30,6 @@ SamplerState gSamNormal    : register(s0);
 SamplerState gSamDepth     : register(s1);
 SamplerState gSamRandomVec : register(s2);
 
-static const float2 gNoiseScale = {1280.f / 4, 720.f / 4};
 static const int gSampleCount = kernelSize;
 static const float2 gTexCoords[6] =
 {
@@ -114,12 +111,12 @@ float3 sample_random(float2 coord)
 float other_occlusion(float src_depth, float occ_depth, float3 target_position, float3 src_position, float3 normal)
 {
 #ifdef RANGE_METHOD0
-		float rangeCheck = abs(src_depth - occ_depth) < gOcclusionRadius ? 1.0 : 0.0;
+	float rangeCheck = smoothstep(0.0, 1.0, gOcclusionRadius / abs(src_depth - occ_depth));
 #else
-		float rangeCheck = smoothstep(0.0, 1.0, gOcclusionRadius / abs(src_depth - occ_depth));
+	float rangeCheck = abs(src_depth - occ_depth) < gOcclusionRadius ? 1.0 : 0.0;
 #endif
-		float dp = max(dot(normal, normalize(target_position - src_position)), 0.0f);
-		return (occ_depth <= target_position.z ? 1.0 : 0.0) * rangeCheck * dp;
+	float dp = max(dot(normal, normalize(target_position - src_position)), 0.0f);
+	return (occ_depth <= target_position.z ? 1.0 : 0.0) * rangeCheck * dp;
 }
 
 float4 PS(VertexOut pin) : SV_Target
