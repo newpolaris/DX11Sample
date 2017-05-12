@@ -5,7 +5,7 @@
   <PropertyGroup />
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>..\..\Common</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\Common;..\..\DXUT\Core;..\..\DXUT\Optional</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <AdditionalLibraryDirectories>..\..\Common</AdditionalLibraryDirectories>

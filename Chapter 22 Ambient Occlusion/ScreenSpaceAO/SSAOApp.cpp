@@ -34,6 +34,7 @@ namespace
 #include "SceneBinFile.h"
 #include "Camera.h"
 #include "DXUTGui.h"
+#include "Sky.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "D3DCompiler.lib")
@@ -93,7 +94,7 @@ SceneBinFile g_SceneBinFiles[NUM_BIN_FILES];
 SceneRenderer g_pSceneRenderer;
 
 static int g_CurrentSceneId = 3;
-static float m_fScaling = 20;
+static float m_fScaling = 200;
 
 struct Scene
 {
@@ -173,7 +174,11 @@ public:
 	~SSAOApp();
 
 	bool Init();
+	void BuildObject();
 	void InitDXUT();
+	void LoadTextures();
+	void RenderText(const NVSDK_D3D11_RenderTimesForAO & AORenderTimes, UINT AllocatedVideoMemoryBytes);
+	void SetCamera(float Angle);
 	void OnResize();
 	void UpdateScene(float dt);
 	void DrawScene();
@@ -245,8 +250,10 @@ private:
 
 	Camera mCam;
 	int mState = 1;
+	float m_fCameraAngle = 90.f;
     POINT mLastMousePos;
-
+	
+	Sky* m_pSky = nullptr;
 	NVSDK11::TimestampQueries m_TimestampQueries;
 };
 
@@ -289,6 +296,8 @@ SSAOApp::~SSAOApp()
     SAFE_DELETE(g_pTxtHelper);
 
     m_TimestampQueries.Release();
+
+	SAFE_DELETE(m_pSky);
 }
 
 bool SSAOApp::Init()
@@ -297,14 +306,21 @@ bool SSAOApp::Init()
 		return false;
 
 	InitDXUT();
+	LoadTextures();
 	BuildStaticSamplers();
 	BuildFX();
 	BuildVertexLayout();
 	BuildGeometry();
 	BuildViewDependentResource();
 	BuildPSO();
+	BuildObject();
 
 	return true;
+}
+
+void SSAOApp::BuildObject()
+{
+	m_pSky = new Sky(md3dDevice, L"../../Textures/snowcube1024.dds", 5000.0f);
 }
 
 void SSAOApp::InitDXUT()
@@ -315,7 +331,23 @@ void SSAOApp::InitDXUT()
 	m_TimestampQueries.Create(md3dDevice);
 }
 
-void RenderText(const NVSDK_D3D11_RenderTimesForAO &AORenderTimes, UINT AllocatedVideoMemoryBytes)
+void SSAOApp::LoadTextures()
+{
+	auto bricksTex = std::make_shared<TextureResource>(md3dDevice, "bricksTex");
+	bricksTex->LoadTextureFromFile(L"../../Textures/bricks.dds");
+
+	auto stoneTex = std::make_shared<TextureResource>(md3dDevice, "stoneTex");
+	stoneTex->LoadTextureFromFile(L"../../Textures/stone.dds");
+
+	auto tileTex = std::make_shared<TextureResource>(md3dDevice, "tileTex");
+	tileTex->LoadTextureFromFile(L"../../Textures/tile.dds");
+
+	mTextures[bricksTex->Name] = bricksTex;
+	mTextures[stoneTex->Name] = stoneTex;
+	mTextures[tileTex->Name] = tileTex;
+}
+
+void SSAOApp::RenderText(const NVSDK_D3D11_RenderTimesForAO &AORenderTimes, UINT AllocatedVideoMemoryBytes)
 {
     g_pTxtHelper->Begin();
     g_pTxtHelper->SetInsertionPos(5, 5);
@@ -328,9 +360,14 @@ void RenderText(const NVSDK_D3D11_RenderTimesForAO &AORenderTimes, UINT Allocate
         AORenderTimes.BlurYTimeMS,
         AORenderTimes.CompositeTimeMS);
     g_pTxtHelper->DrawFormattedTextLine(L"Allocated Video Memory: %d MB\n", AllocatedVideoMemoryBytes / (1024*1024));
+    g_pTxtHelper->DrawFormattedTextLine(L"Angle %f, Scaling Effect %f", m_fCameraAngle, 1.0/tanf(m_fCameraAngle*XM_PI/360.f));
     g_pTxtHelper->End();
 }
 
+void SSAOApp::SetCamera(float Angle)
+{
+	mCam.SetLens(Angle * MathHelper::Pi / 180.0, AspectRatio(), 1.f, 1000.0f);
+}
 
 void SSAOApp::OnResize()
 {
@@ -338,7 +375,7 @@ void SSAOApp::OnResize()
 
 	D3DApp::OnResize();
 
-	mCam.SetLens(0.05f*MathHelper::Pi, AspectRatio(), 1.f, 1000.0f);
+	SetCamera(m_fCameraAngle);
 
 	// Resize the swap chain and recreate the render target view.
 	ComPtr<ID3D11Texture2D> RenderTargetBuffer;
@@ -516,30 +553,39 @@ void SSAOApp::OnKeyBoardInput(float dt)
 	if (GetAsyncKeyState('G') & 0x8000)
 		occlusionRadius += 0.05*dt;
 
-	if( GetAsyncKeyState('W') & 0x8000 )
+	if (GetAsyncKeyState('W') & 0x8000)
 		mCam.Walk(1.0f*dt);
 
-	if( GetAsyncKeyState('S') & 0x8000 )
+	if (GetAsyncKeyState('S') & 0x8000)
 		mCam.Walk(-1.0f*dt);
 
-	if( GetAsyncKeyState('A') & 0x8000 )
+	if (GetAsyncKeyState('A') & 0x8000)
 		mCam.Strafe(-1.0f*dt);
 
-	if( GetAsyncKeyState('D') & 0x8000 )
+	if (GetAsyncKeyState('D') & 0x8000)
 		mCam.Strafe(1.0f*dt);
 
 	if (GetAsyncKeyState('Z') & 0x8000) {
-		m_fScaling += dt;
+		m_fScaling += dt*20;
 		mCam.Zoom(m_fScaling);
 	}
 	if (GetAsyncKeyState('X') & 0x8000) {
-		m_fScaling -= dt;
+		m_fScaling -= dt*20;
 		mCam.Zoom(m_fScaling);
 	}
 	if (GetAsyncKeyState('U') & 0x8000)
 		mCam.Rate(dt);
 	if (GetAsyncKeyState('I') & 0x8000)
 		mCam.Rate(-dt);
+
+	if (GetAsyncKeyState('M') & 0x8000) {
+		m_fCameraAngle += 0.5f;
+		SetCamera(m_fCameraAngle);
+	}
+	if (GetAsyncKeyState('N') & 0x8000) {
+		m_fCameraAngle -= 0.5f;
+		SetCamera(m_fCameraAngle);
+	}
 }
 
 void SSAOApp::UpdateCamera(float dt)
@@ -825,7 +871,6 @@ void SSAOApp::DrawScene()
 	if (mState == 1 || mState == 0)
 	{
 		DrawSceneWithSSAO(md3dImmediateContext, &RenderTimes);
-		RenderText(RenderTimes, NumBytes);
 	}
 	else
 	{
@@ -837,6 +882,12 @@ void SSAOApp::DrawScene()
 		md3dImmediateContext->OMSetRenderTargets(1, &ColorRTV, mDepths["depthBuffer"]->GetDSV());
 		FrameRender(0, 0, nullptr);
 	}
+
+	mRenderTargets["sky"]->Bind();
+	m_pSky->Draw(md3dImmediateContext, mCam);
+
+	RenderText(RenderTimes, NumBytes);
+
 	HR(mSwapChain->Present(0, 0));
 }
 
@@ -1030,8 +1081,8 @@ void SSAOApp::OnMouseMove(WPARAM btnState, int x, int y)
 		float dx = XMConvertToRadians(0.25f*static_cast<float>(x - mLastMousePos.x));
 		float dy = XMConvertToRadians(0.25f*static_cast<float>(y - mLastMousePos.y));
 
-		mCam.Pitch(dy*0.1);
-		mCam.RotateY(dx*0.1);
+		mCam.Pitch(dy);
+		mCam.RotateY(dx);
 	}
 	else if( (btnState & MK_RBUTTON) != 0 )
 	{
@@ -1331,10 +1382,8 @@ void SSAOApp::BuildPSO()
 	PipelineStateDesc BlurState { "", "blur", "blur" };
 	CreatePSO("BlurSSAO", BlurState);
 
-
 	auto DrawRenderTarget = CreateRenderTarget("draw");
 	DrawRenderTarget->SetColor(Slot::Color0, m_RenderTargetBuffer);
-	DrawRenderTarget->SetDepth(DepthBuffer);
 	DrawRenderTarget->m_bClearColor = false;
 	DrawRenderTarget->m_bClearDepth = false;
 	DrawRenderTarget->m_bClearStencil = false;
@@ -1342,4 +1391,11 @@ void SSAOApp::BuildPSO()
 	PipelineStateDesc CompositeState { "", "composite", "composite" };
 	CompositeState.RT = "draw";
 	CreatePSO("Composite", CompositeState);
+
+	auto SkyRenderTarget = CreateRenderTarget("sky");
+	SkyRenderTarget->SetColor(Slot::Color0, m_RenderTargetBuffer);
+	SkyRenderTarget->SetDepth(DepthBuffer);
+	SkyRenderTarget->m_bClearColor = false;
+	SkyRenderTarget->m_bClearDepth = false;
+	SkyRenderTarget->m_bClearStencil = false;
 }

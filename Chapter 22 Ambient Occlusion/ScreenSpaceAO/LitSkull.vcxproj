@@ -101,6 +101,7 @@
     <ClCompile Include="..\..\Common\xnacollision.cpp" />
     <ClCompile Include="FrameResource.cpp" />
     <ClCompile Include="Scene3D.cpp" />
+    <ClCompile Include="Sky.cpp" />
     <ClCompile Include="SSAOApp.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -145,6 +146,7 @@
     <ClInclude Include="ConstantBuffer.h" />
     <ClInclude Include="FrameResource.h" />
     <ClInclude Include="scenebinfile.h" />
+    <ClInclude Include="Sky.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="FX\Composite.hlsl">
