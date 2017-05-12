@@ -1,4 +1,3 @@
-#define kernelSize 64
 #define DEPTH32
 // #define RANGE_METHOD0
 #define SELF_OCC_REMOVE
@@ -9,7 +8,7 @@ cbuffer cbSsao : register(b0)
 	float4x4 gProj;
 	float4x4 gInvProj;
 	float4x4 gProjTex;
-	float4   gOffsetVectors[kernelSize];
+	float4   gOffsetVectors[TEST_SAMPLE];
     float2   gNoiseScale = {1280.f / 4, 720.f / 4};
 
 	// Coordinates given in view space.
@@ -30,7 +29,7 @@ SamplerState gSamNormal    : register(s0);
 SamplerState gSamDepth     : register(s1);
 SamplerState gSamRandomVec : register(s2);
 
-static const int gSampleCount = kernelSize;
+static const int gSampleCount = TEST_SAMPLE;
 static const float2 gTexCoords[6] =
 {
     float2(0.0f, 1.0f),

@@ -9,7 +9,7 @@
 
 namespace 
 {
-	const int kernelSize = 64;
+	const int NumRandomSample = 32;
 	float occlusionRadius = 0.1;
 	float occlusionScale = 1.f;
 	float occlusionBias = 0.1f;
@@ -118,6 +118,54 @@ typedef struct
     float TotalTimeMS;
 } NVSDK_D3D11_RenderTimesForAO;
 
+namespace NVSDK11
+{
+	class TimestampQueries
+	{
+	public:
+		void Create(ID3D11Device *pD3DDevice);
+		void Release();
+		ID3D11Query *pDisjointTimestampQuery;
+		ID3D11Query *pTimestampQueryBegin;
+		ID3D11Query *pTimestampQueryZ;
+		ID3D11Query *pTimestampQueryAO;
+		ID3D11Query *pTimestampQueryBlurX;
+		ID3D11Query *pTimestampQueryBlurY;
+		ID3D11Query *pTimestampQueryEnd;
+	};
+
+#define SAFE_CALL(x)         { if (x != S_OK) assert(0); }
+
+	//--------------------------------------------------------------------------------
+	void TimestampQueries::Create(ID3D11Device *pD3DDevice)
+	{
+		D3D11_QUERY_DESC queryDesc;
+		queryDesc.MiscFlags = 0;
+
+		queryDesc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
+		SAFE_CALL(pD3DDevice->CreateQuery(&queryDesc, &pDisjointTimestampQuery));
+
+		queryDesc.Query = D3D11_QUERY_TIMESTAMP;
+		SAFE_CALL(pD3DDevice->CreateQuery(&queryDesc, &pTimestampQueryBegin));
+		SAFE_CALL(pD3DDevice->CreateQuery(&queryDesc, &pTimestampQueryZ));
+		SAFE_CALL(pD3DDevice->CreateQuery(&queryDesc, &pTimestampQueryAO));
+		SAFE_CALL(pD3DDevice->CreateQuery(&queryDesc, &pTimestampQueryBlurX));
+		SAFE_CALL(pD3DDevice->CreateQuery(&queryDesc, &pTimestampQueryBlurY));
+		SAFE_CALL(pD3DDevice->CreateQuery(&queryDesc, &pTimestampQueryEnd));
+	}
+
+	void TimestampQueries::Release()
+	{
+		SAFE_RELEASE(pDisjointTimestampQuery);
+		SAFE_RELEASE(pTimestampQueryBegin);
+		SAFE_RELEASE(pTimestampQueryZ);
+		SAFE_RELEASE(pTimestampQueryAO);
+		SAFE_RELEASE(pTimestampQueryBlurX);
+		SAFE_RELEASE(pTimestampQueryBlurY);
+		SAFE_RELEASE(pTimestampQueryEnd);
+	}
+}
+
 class SSAOApp : public D3DApp 
 {
 public:
@@ -131,7 +179,7 @@ public:
 	void DrawScene();
 	void BlurAmbientMap(UINT nCount);
 	void ShaderCheckResource(ShaderType Type, D3D_SHADER_INPUT_TYPE InputType, UINT Slot, std::string Name);
-	void DrawSceneWithSSAO();
+	void Composite();
 	void ComputeSSAO();
 	void OnMouseDown(WPARAM btnState, int x, int y);
 	void OnMouseUp(WPARAM btnState, int x, int y);
@@ -157,6 +205,10 @@ private:
 	void BuildStaticSamplers();
 	void ApplyPipelineState(const std::string& tag);
 	void FrameRender(double fTime, float fElapsedTime, void * pUserContext);
+
+	void ComputeRenderTimes(ID3D11DeviceContext * pDeviceContext, UINT64 Frequency, NVSDK_D3D11_RenderTimesForAO * pRenderTimes);
+
+	void DrawSceneWithSSAO(ID3D11DeviceContext * pDeviceContext, NVSDK_D3D11_RenderTimesForAO * pRenderTimes);
 
 	ID3D11SamplerState * GetSampler(const std::string & name);
 	ID3DBlob* GetShaderBlob(ShaderType Type, std::string Name);
@@ -193,8 +245,9 @@ private:
 
 	Camera mCam;
 	int mState = 1;
-
     POINT mLastMousePos;
+
+	NVSDK11::TimestampQueries m_TimestampQueries;
 };
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -234,6 +287,8 @@ SSAOApp::~SSAOApp()
     g_DialogResourceManager.OnD3D11DestroyDevice();
     DXUTGetGlobalResourceCache().OnDestroyDevice();
     SAFE_DELETE(g_pTxtHelper);
+
+    m_TimestampQueries.Release();
 }
 
 bool SSAOApp::Init()
@@ -256,13 +311,15 @@ void SSAOApp::InitDXUT()
 {
     g_DialogResourceManager.OnD3D11CreateDevice(md3dDevice, md3dImmediateContext);
     g_pTxtHelper = new CDXUTTextHelper(md3dDevice, md3dImmediateContext, &g_DialogResourceManager, 15);
+
+	m_TimestampQueries.Create(md3dDevice);
 }
 
 void RenderText(const NVSDK_D3D11_RenderTimesForAO &AORenderTimes, UINT AllocatedVideoMemoryBytes)
 {
     g_pTxtHelper->Begin();
     g_pTxtHelper->SetInsertionPos(5, 5);
-    g_pTxtHelper->SetForegroundColor(D3DXCOLOR(0.0f, 1.0f, 0.0f, 1.0f));
+    g_pTxtHelper->SetForegroundColor(D3DXCOLOR(1.0f, 1.0f, 0.0f, 1.0f));
     g_pTxtHelper->DrawFormattedTextLine(L"GPU Times (ms): Total: %0.1f (Z: %0.2f, AO: %0.2f, BlurX: %0.2f, BlurY: %0.2f, Comp: %0.2f)",
         AORenderTimes.TotalTimeMS,
         AORenderTimes.ZTimeMS,
@@ -355,8 +412,11 @@ void SSAOApp::OnResize()
 
 void SSAOApp::BuildFX()
 {
-	CompileShader(VertexShader, "ssao", nullptr, L"FX/SSAO.hlsl", "VS", "vs_5_0");
-	CompileShader(PixelShader, "ssao", nullptr, L"FX/SSAO.hlsl", "PS", "ps_5_0");
+	auto str = std::to_string(NumRandomSample);
+	D3D_SHADER_MACRO define[] = { {"TEST_SAMPLE",  str.c_str() }, { NULL, NULL } };
+
+	CompileShader(VertexShader, "ssao", define, L"FX/SSAO.hlsl", "VS", "vs_5_0");
+	CompileShader(PixelShader, "ssao", define, L"FX/SSAO.hlsl", "PS", "ps_5_0");
 	CompileShader(VertexShader, "blur", nullptr, L"FX/SSAOBlur.hlsl", "VS", "vs_5_0");
 	CompileShader(PixelShader, "blur", nullptr, L"FX/SSAOBlur.hlsl", "PS", "ps_5_0");
 	CompileShader(VertexShader, "composite", nullptr, L"FX/Composite.hlsl", "VS", "vs_5_0");
@@ -672,6 +732,89 @@ void SSAOApp::FrameRender(double fTime, float fElapsedTime, void* pUserContext)
 	*/
 }
 
+void SSAOApp::ComputeRenderTimes(ID3D11DeviceContext* pDeviceContext, UINT64 Frequency, NVSDK_D3D11_RenderTimesForAO *pRenderTimes)
+{
+    UINT64 TimestampBegin;
+    UINT64 TimestampZ;
+    UINT64 TimestampAO;
+    UINT64 TimestampBlurX;
+    UINT64 TimestampBlurY;
+    UINT64 TimestampEnd;
+
+    while (S_OK != pDeviceContext->GetData(m_TimestampQueries.pTimestampQueryBegin, &TimestampBegin, sizeof(UINT64), 0) ) {}
+    while (S_OK != pDeviceContext->GetData(m_TimestampQueries.pTimestampQueryZ, &TimestampZ, sizeof(UINT64), 0) ) {}
+    while (S_OK != pDeviceContext->GetData(m_TimestampQueries.pTimestampQueryAO, &TimestampAO, sizeof(UINT64), 0) ) {}
+    while (S_OK != pDeviceContext->GetData(m_TimestampQueries.pTimestampQueryBlurX, &TimestampBlurX, sizeof(UINT64), 0) ) {}
+    while (S_OK != pDeviceContext->GetData(m_TimestampQueries.pTimestampQueryBlurY, &TimestampBlurY, sizeof(UINT64), 0) ) {}
+    while (S_OK != pDeviceContext->GetData(m_TimestampQueries.pTimestampQueryEnd, &TimestampEnd, sizeof(UINT64), 0) ) {}
+
+    double InvFrequencyMS = 1000.0 / Frequency;
+    pRenderTimes->ZTimeMS           = float(double(TimestampZ - TimestampBegin)     * InvFrequencyMS);
+    pRenderTimes->AOTimeMS          = float(double(TimestampAO - TimestampZ)        * InvFrequencyMS);
+    pRenderTimes->BlurXTimeMS       = float(double(TimestampBlurX - TimestampAO)    * InvFrequencyMS);
+    pRenderTimes->BlurYTimeMS       = float(double(TimestampBlurY - TimestampBlurX) * InvFrequencyMS);
+    pRenderTimes->CompositeTimeMS   = float(double(TimestampEnd - TimestampBlurY)   * InvFrequencyMS);
+    pRenderTimes->TotalTimeMS       = float(double(TimestampEnd - TimestampBegin)   * InvFrequencyMS);
+}
+
+void SSAOApp::DrawSceneWithSSAO(ID3D11DeviceContext* pDeviceContext, NVSDK_D3D11_RenderTimesForAO *pRenderTimes)
+{
+	if (pRenderTimes)
+	{
+		pDeviceContext->Begin(m_TimestampQueries.pDisjointTimestampQuery);
+		pDeviceContext->End(m_TimestampQueries.pTimestampQueryBegin);
+	}
+
+	ApplyPipelineState("NormalDepth");
+	pDeviceContext->RSSetState(mRasterizerState["nowireframe"].Get());
+	FrameRender(0, 0, nullptr);
+
+	if (pRenderTimes)
+	{
+		pDeviceContext->End(m_TimestampQueries.pTimestampQueryZ);
+	}
+
+	ApplyPipelineState("ComputeSSAO");
+	ComputeSSAO();
+
+	if (pRenderTimes)
+	{
+		pDeviceContext->End(m_TimestampQueries.pTimestampQueryAO);
+	}
+
+	ApplyPipelineState("BlurSSAO");
+	BlurAmbientMap(1);
+
+	if (pRenderTimes)
+	{
+		pDeviceContext->End(m_TimestampQueries.pTimestampQueryBlurX);
+		pDeviceContext->End(m_TimestampQueries.pTimestampQueryBlurY);
+	}
+
+	ApplyPipelineState("Composite");
+	std::array<FLOAT, 4> BlendFactor = { 1.f, 1.f, 1.f, 1.f };
+	UINT SampleMask = 0xFFFFFFFF;
+	if (mState == 1) 
+	{
+		pDeviceContext->OMSetBlendState(mBlendState["composite"].Get(), BlendFactor.data(), SampleMask);
+	}
+	Composite();
+
+	if (pRenderTimes)
+	{
+		pDeviceContext->End(m_TimestampQueries.pTimestampQueryEnd);
+		pDeviceContext->End(m_TimestampQueries.pDisjointTimestampQuery);
+
+		D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjointTimestamp;
+		while (S_OK != pDeviceContext->GetData(m_TimestampQueries.pDisjointTimestampQuery, &disjointTimestamp, sizeof(D3D11_QUERY_DATA_TIMESTAMP_DISJOINT), 0)) {}
+
+		if (!disjointTimestamp.Disjoint)
+		{
+			ComputeRenderTimes(pDeviceContext, disjointTimestamp.Frequency, pRenderTimes);
+		}
+	}
+}
+
 void SSAOApp::DrawScene()
 {
 	static NVSDK_D3D11_RenderTimesForAO RenderTimes;
@@ -681,25 +824,8 @@ void SSAOApp::DrawScene()
 
 	if (mState == 1 || mState == 0)
 	{
-		ApplyPipelineState("NormalDepth");
-		md3dImmediateContext->RSSetState(mRasterizerState["nowireframe"].Get());
-		FrameRender(0, 0, nullptr);
-
-		ApplyPipelineState("ComputeSSAO");
-		ComputeSSAO();
-
-		ApplyPipelineState("BlurSSAO");
-		BlurAmbientMap(1);
-
-		ApplyPipelineState("Composite");
-		std::array<FLOAT, 4> BlendFactor = { 1.f, 1.f, 1.f, 1.f };
-		UINT SampleMask = 0xFFFFFFFF;
-		if (mState == 1) {
-			md3dImmediateContext->OMSetBlendState(mBlendState["composite"].Get(), BlendFactor.data(), SampleMask);
-		}
-		DrawSceneWithSSAO();
-
-        RenderText(RenderTimes, NumBytes);
+		DrawSceneWithSSAO(md3dImmediateContext, &RenderTimes);
+		RenderText(RenderTimes, NumBytes);
 	}
 	else
 	{
@@ -767,7 +893,7 @@ void SSAOApp::ShaderCheckResource(ShaderType Type, D3D_SHADER_INPUT_TYPE InputTy
 	assert(m_pCurrentPSO->m_Shaders[Type]->ShaderCheckResource(Type, InputType, Slot, Name));
 }
 
-void SSAOApp::DrawSceneWithSSAO()
+void SSAOApp::Composite()
 {
 	std::vector<ID3D11SamplerState*> Sampler = { GetSampler("anisotropicWrap") };
 	md3dImmediateContext->PSSetSamplers(0, Sampler.size(), Sampler.data());
@@ -790,7 +916,7 @@ std::vector<XMFLOAT4> CalcOffsetVectors()
 	std::uniform_real_distribution<float> randomFloats(0.0, 1.0); // random floats between 0.0 - 1.0
 	std::default_random_engine generator;
 	std::vector<XMFLOAT4> ssaoKernel;
-	for (uint16_t i = 0; i < kernelSize; ++i)
+	for (uint16_t i = 0; i < NumRandomSample; ++i)
 	{
 		XMFLOAT3 sample(
 			randomFloats(generator) * 2.0 - 1.0,
@@ -802,7 +928,7 @@ std::vector<XMFLOAT4> CalcOffsetVectors()
 		T = XMVector3Normalize(T);
 		XMVectorScale(T, randomFloats(generator));
 
-		float scale = float(i) / float(kernelSize);
+		float scale = float(i) / float(NumRandomSample);
 		scale = lerp(0.1f, 1.0f, scale * scale);
 		XMVectorScale(T, scale);
 		XMFLOAT4 target;
@@ -813,11 +939,11 @@ std::vector<XMFLOAT4> CalcOffsetVectors()
 	return ssaoKernel;
 }
 
-void SetOffsetVectors(XMFLOAT4 target[kernelSize])
+void SetOffsetVectors(XMFLOAT4 target[NumRandomSample])
 {
 	static auto offset = CalcOffsetVectors();
     std::copy(offset.begin(), offset.end(), 
-		stdext::checked_array_iterator<XMFLOAT4*>(target, kernelSize));
+		stdext::checked_array_iterator<XMFLOAT4*>(target, NumRandomSample));
 }
 
 void SSAOApp::ComputeSSAO()
@@ -835,7 +961,7 @@ void SSAOApp::ComputeSSAO()
 		XMFLOAT4X4 gProj;
 		XMFLOAT4X4 gInvProj;
 		XMFLOAT4X4 gProjTex;
-		XMFLOAT4   gOffsetVectors[kernelSize];
+		XMFLOAT4   gOffsetVectors[NumRandomSample];
 		XMFLOAT2   gNoiseScale;
 
 		// Coordinates given in view space.
