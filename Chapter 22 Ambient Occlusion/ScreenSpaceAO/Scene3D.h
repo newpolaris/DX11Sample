@@ -18,7 +18,7 @@
 
 #include <strsafe.h>
 #include "SDKMesh.h"
-#include "MeshUTWraper.h"
+#include "SDKMisc.h"
 #include "d3dx11effect.h"
 
 #ifdef _DEBUG

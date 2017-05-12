@@ -53,7 +53,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\..\Common;..\..\\DXUT\Core;..\..\\DXUT\Optional;..\..\\DXUT\</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\Common;..\..\\DXUT\Core;..\..\\DXUT\Optional;..\..\\DXUT\Core</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -99,8 +99,6 @@
     <ClCompile Include="..\..\Common\TextureResource.cpp" />
     <ClCompile Include="..\..\Common\Waves.cpp" />
     <ClCompile Include="..\..\Common\xnacollision.cpp" />
-    <ClCompile Include="..\..\DXUT\MeshUTWraper.cpp" />
-    <ClCompile Include="..\..\DXUT\Optional\SDKmesh.cpp" />
     <ClCompile Include="FrameResource.cpp" />
     <ClCompile Include="Scene3D.cpp" />
     <ClCompile Include="SSAOApp.cpp" />
@@ -128,8 +126,22 @@
     <ClInclude Include="..\..\Common\UploadBuffer.h" />
     <ClInclude Include="..\..\Common\Waves.h" />
     <ClInclude Include="..\..\Common\xnacollision.h" />
-    <ClInclude Include="..\..\DXUT\MeshUTWraper.h" />
+    <ClInclude Include="..\..\DXUT\Core\DXUT.h" />
+    <ClInclude Include="..\..\DXUT\Core\DXUTDevice11.h" />
+    <ClInclude Include="..\..\DXUT\Core\DXUTDevice9.h" />
+    <ClInclude Include="..\..\DXUT\Core\DXUTmisc.h" />
+    <ClInclude Include="..\..\DXUT\Optional\DXUTcamera.h" />
+    <ClInclude Include="..\..\DXUT\Optional\DXUTGui.h" />
+    <ClInclude Include="..\..\DXUT\Optional\DXUTguiIME.h" />
+    <ClInclude Include="..\..\DXUT\Optional\DXUTLockFreePipe.h" />
+    <ClInclude Include="..\..\DXUT\Optional\DXUTres.h" />
+    <ClInclude Include="..\..\DXUT\Optional\DXUTSettingsDlg.h" />
+    <ClInclude Include="..\..\DXUT\Optional\DXUTShapes.h" />
+    <ClInclude Include="..\..\DXUT\Optional\ImeUi.h" />
     <ClInclude Include="..\..\DXUT\Optional\SDKMesh.h" />
+    <ClInclude Include="..\..\DXUT\Optional\SDKMisc.h" />
+    <ClInclude Include="..\..\DXUT\Optional\SDKsound.h" />
+    <ClInclude Include="..\..\DXUT\Optional\SDKwavefile.h" />
     <ClInclude Include="ConstantBuffer.h" />
     <ClInclude Include="FrameResource.h" />
     <ClInclude Include="scenebinfile.h" />

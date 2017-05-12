@@ -75,14 +75,8 @@
     <ClCompile Include="..\..\Common\PipelineStateObject.cpp">
       <Filter>Common</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\DXUT\Optional\SDKmesh.cpp">
-      <Filter>DXUT</Filter>
-    </ClCompile>
     <ClCompile Include="Scene3D.cpp">
       <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\DXUT\MeshUTWraper.cpp">
-      <Filter>DXUT</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Common\Camera.cpp">
       <Filter>Common</Filter>
@@ -158,17 +152,59 @@
     <ClInclude Include="..\..\Common\Shader.h">
       <Filter>Common</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\DXUT\Optional\SDKMesh.h">
-      <Filter>DXUT</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\DXUT\MeshUTWraper.h">
-      <Filter>DXUT</Filter>
-    </ClInclude>
     <ClInclude Include="scenebinfile.h">
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Common\Camera.h">
       <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DXUT\Core\DXUT.h">
+      <Filter>DXUT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DXUT\Core\DXUTDevice11.h">
+      <Filter>DXUT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DXUT\Core\DXUTDevice9.h">
+      <Filter>DXUT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DXUT\Core\DXUTmisc.h">
+      <Filter>DXUT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DXUT\Optional\DXUTcamera.h">
+      <Filter>DXUT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DXUT\Optional\DXUTGui.h">
+      <Filter>DXUT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DXUT\Optional\DXUTguiIME.h">
+      <Filter>DXUT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DXUT\Optional\DXUTLockFreePipe.h">
+      <Filter>DXUT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DXUT\Optional\DXUTres.h">
+      <Filter>DXUT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DXUT\Optional\DXUTSettingsDlg.h">
+      <Filter>DXUT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DXUT\Optional\DXUTShapes.h">
+      <Filter>DXUT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DXUT\Optional\ImeUi.h">
+      <Filter>DXUT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DXUT\Optional\SDKMesh.h">
+      <Filter>DXUT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DXUT\Optional\SDKMisc.h">
+      <Filter>DXUT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DXUT\Optional\SDKsound.h">
+      <Filter>DXUT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\DXUT\Optional\SDKwavefile.h">
+      <Filter>DXUT</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

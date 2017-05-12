@@ -8,16 +8,9 @@
 //
 // Copyright (c) Microsoft Corporation. All rights reserved.
 //--------------------------------------------------------------------------------------
-#include "d3dutil.h"
+#include "DXUT.h"
 #include "SDKMesh.h"
-#include "MeshUTWraper.h"
-#include "d3dx9math.inl"
-
-#ifdef _DEBUG
-#pragma comment(lib, "d3dx9d.lib")
-#else
-#pragma comment(lib, "d3dx9.lib")
-#endif
+#include "SDKMisc.h"
 
 //--------------------------------------------------------------------------------------
 void CDXUTSDKMesh::LoadMaterials( ID3D11Device* pd3dDevice, SDKMESH_MATERIAL* pMaterials, UINT numMaterials,
@@ -334,8 +327,8 @@ HRESULT CDXUTSDKMesh::CreateFromFile( ID3D11Device* pDev11,
     // Open the file
     m_hFile = CreateFile( m_strPathW, FILE_READ_DATA, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN,
                           NULL );
-	if (INVALID_HANDLE_VALUE == m_hFile)
-		return DXUTERR_MEDIANOTFOUND;
+    if( INVALID_HANDLE_VALUE == m_hFile )
+        return DXUTERR_MEDIANOTFOUND;
 
     // Change the path to just the directory
     WCHAR* pLastBSlash = wcsrchr( m_strPathW, L'\\' );
@@ -1048,8 +1041,8 @@ HRESULT CDXUTSDKMesh::LoadAnimation( WCHAR* szFileName )
     // Open the file
     HANDLE hFile = CreateFile( strPath, FILE_READ_DATA, FILE_SHARE_READ, NULL, OPEN_EXISTING,
                                FILE_FLAG_SEQUENTIAL_SCAN, NULL );
-	if (INVALID_HANDLE_VALUE == hFile)
-		return DXUTERR_MEDIANOTFOUND;
+    if( INVALID_HANDLE_VALUE == hFile )
+        return DXUTERR_MEDIANOTFOUND;
 
     /////////////////////////
     // Header

@@ -28,6 +28,11 @@
 #include "D3Dcompiler.h"
 #include "MathHelper.h"
 #include "LightHelper.h"
+#include "d3d9.h"
+#include "d3dx9math.h"
+#include "D3D10.h"
+#include "DXUT.h"
+
 //---------------------------------------------------------------------------------------
 // Simple d3d error checker for book demos.
 //---------------------------------------------------------------------------------------

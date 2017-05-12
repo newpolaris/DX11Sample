@@ -33,6 +33,7 @@ namespace
 #include "Scene3D.h"
 #include "SceneBinFile.h"
 #include "Camera.h"
+#include "DXUTGui.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "D3DCompiler.lib")
@@ -43,9 +44,20 @@ namespace
 
 #ifdef _DEBUG
 #pragma comment(lib, "d3dx11d.lib")
+#pragma comment(lib, "DXUTd.lib")
+#pragma comment(lib, "DXUTOptd.lib")
 #else
 #pragma comment(lib, "d3dx11.lib")
+#pragma comment(lib, "DXUT.lib")
+#pragma comment(lib, "DXUTOpt.lib")
 #endif
+
+#pragma comment(lib, "dxguid.lib")
+#pragma comment(lib, "d3dx9d.lib")
+#pragma comment(lib, "d3d9.lib")
+#pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "comctl32.lib")
+
 
 using Microsoft::WRL::ComPtr;
 
@@ -66,6 +78,8 @@ MeshDescriptor g_MeshDesc[] =
     {L"Test",      L"..\\..\\Media\\FenceSsaoTestScene.sdkmesh",   SCENE_NO_GROUND_PLANE,  SCENE_USE_SHADING,  SCENE_USE_FIRST_PERSON_CAMERA, 0.05f },
 };
 
+CDXUTDialogResourceManager    g_DialogResourceManager;  // manager for shared resources of dialogs
+CDXUTTextHelper*              g_pTxtHelper = NULL;
 
 Color ConvertColor(const XMVECTORF32& vec) {
 	return Color(vec.f[0], vec.f[1], vec.f[2], vec.f[3]);
@@ -93,6 +107,17 @@ struct Scene
 };
 Scene g_Scenes[NUM_MESHES+NUM_BIN_FILES];
 
+// To profile the GPU time spent in NVSDK_D3D11_RenderAO.
+typedef struct
+{
+    float ZTimeMS;
+    float AOTimeMS;
+    float BlurXTimeMS;
+    float BlurYTimeMS;
+    float CompositeTimeMS;
+    float TotalTimeMS;
+} NVSDK_D3D11_RenderTimesForAO;
+
 class SSAOApp : public D3DApp 
 {
 public:
@@ -100,6 +125,7 @@ public:
 	~SSAOApp();
 
 	bool Init();
+	void InitDXUT();
 	void OnResize();
 	void UpdateScene(float dt);
 	void DrawScene();
@@ -205,6 +231,9 @@ SSAOApp::SSAOApp(HINSTANCE hInstance)
 
 SSAOApp::~SSAOApp()
 {
+    g_DialogResourceManager.OnD3D11DestroyDevice();
+    DXUTGetGlobalResourceCache().OnDestroyDevice();
+    SAFE_DELETE(g_pTxtHelper);
 }
 
 bool SSAOApp::Init()
@@ -212,6 +241,7 @@ bool SSAOApp::Init()
 	if (!D3DApp::Init())
 		return false;
 
+	InitDXUT();
 	BuildStaticSamplers();
 	BuildFX();
 	BuildVertexLayout();
@@ -222,14 +252,38 @@ bool SSAOApp::Init()
 	return true;
 }
 
+void SSAOApp::InitDXUT()
+{
+    g_DialogResourceManager.OnD3D11CreateDevice(md3dDevice, md3dImmediateContext);
+    g_pTxtHelper = new CDXUTTextHelper(md3dDevice, md3dImmediateContext, &g_DialogResourceManager, 15);
+}
+
+void RenderText(const NVSDK_D3D11_RenderTimesForAO &AORenderTimes, UINT AllocatedVideoMemoryBytes)
+{
+    g_pTxtHelper->Begin();
+    g_pTxtHelper->SetInsertionPos(5, 5);
+    g_pTxtHelper->SetForegroundColor(D3DXCOLOR(0.0f, 1.0f, 0.0f, 1.0f));
+    g_pTxtHelper->DrawFormattedTextLine(L"GPU Times (ms): Total: %0.1f (Z: %0.2f, AO: %0.2f, BlurX: %0.2f, BlurY: %0.2f, Comp: %0.2f)",
+        AORenderTimes.TotalTimeMS,
+        AORenderTimes.ZTimeMS,
+        AORenderTimes.AOTimeMS,
+        AORenderTimes.BlurXTimeMS,
+        AORenderTimes.BlurYTimeMS,
+        AORenderTimes.CompositeTimeMS);
+    g_pTxtHelper->DrawFormattedTextLine(L"Allocated Video Memory: %d MB\n", AllocatedVideoMemoryBytes / (1024*1024));
+    g_pTxtHelper->End();
+}
+
+
 void SSAOApp::OnResize()
 {
 	m_RenderTargetBuffer->Destroy();
 
 	D3DApp::OnResize();
 
-	// Resize the swap chain and recreate the render target view.
+	mCam.SetLens(0.05f*MathHelper::Pi, AspectRatio(), 1.f, 1000.0f);
 
+	// Resize the swap chain and recreate the render target view.
 	ComPtr<ID3D11Texture2D> RenderTargetBuffer;
 
 	HR(mSwapChain->GetBuffer(0, IID_PPV_ARGS(&RenderTargetBuffer)));
@@ -290,7 +344,12 @@ void SSAOApp::OnResize()
     {
         g_SceneBinFiles[i].OnResizedSwapChain(md3dDevice, mClientWidth, mClientHeight);
     }
-	mCam.SetLens(0.05f*MathHelper::Pi, AspectRatio(), 1.f, 1000.0f);
+	
+	ComPtr<IDXGISurface> dxgiSurf;
+	RenderTargetBuffer.As(&dxgiSurf);
+	DXGI_SURFACE_DESC desc;
+	dxgiSurf->GetDesc(&desc);
+	g_DialogResourceManager.OnD3D11ResizedSwapChain(md3dDevice, &desc);
 }
 
 
@@ -615,6 +674,9 @@ void SSAOApp::FrameRender(double fTime, float fElapsedTime, void* pUserContext)
 
 void SSAOApp::DrawScene()
 {
+	static NVSDK_D3D11_RenderTimesForAO RenderTimes;
+    static UINT32 NumBytes;
+
 	md3dImmediateContext->RSSetViewports(1, &mScreenViewport);
 
 	if (mState == 1 || mState == 0)
@@ -636,6 +698,8 @@ void SSAOApp::DrawScene()
 			md3dImmediateContext->OMSetBlendState(mBlendState["composite"].Get(), BlendFactor.data(), SampleMask);
 		}
 		DrawSceneWithSSAO();
+
+        RenderText(RenderTimes, NumBytes);
 	}
 	else
 	{

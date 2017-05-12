@@ -15,9 +15,7 @@
 #pragma once
 
 #include "d3dUtil.h"
-#include "d3d9.h"
-#include "d3dx9math.h"
-#include "MeshUTWraper.h"
+#include "SDKMisc.h"
 
 #ifndef MAX_PATH_STR
 #define MAX_PATH_STR 512

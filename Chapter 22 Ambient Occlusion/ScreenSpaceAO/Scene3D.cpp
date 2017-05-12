@@ -13,7 +13,6 @@
 // Please direct any bugs or questions to SDKFeedback@nvidia.com
 
 #include "d3dUtil.h"
-#include "MeshUTWraper.h"
 #include "Scene3D.h"
 
 // Vertex Data

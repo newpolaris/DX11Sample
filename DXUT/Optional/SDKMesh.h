@@ -13,11 +13,6 @@
 #ifndef _SDKMESH_
 #define _SDKMESH_
 
-#include "d3dUtil.h"
-
-#include "d3d9.h"
-#include "d3dx9math.h"
-
 //--------------------------------------------------------------------------------------
 // Hard Defines for the various structures
 //--------------------------------------------------------------------------------------
@@ -307,6 +302,7 @@ private:
     //BYTE*                         m_pBufferData;
     HANDLE m_hFile;
     HANDLE m_hFileMappingObject;
+    CGrowableArray <BYTE*> m_MappedPointers;
     IDirect3DDevice9* m_pDev9;
     ID3D11Device* m_pDev11;
     ID3D11DeviceContext* m_pDevContext11;
