@@ -694,6 +694,8 @@ void SSAOApp::FrameRender(double fTime, float fElapsedTime, void* pUserContext)
             g_pSceneRenderer.OnFrameRender(&target,
 				(D3DXMATRIX*)&mView,
 				(D3DXMATRIX*)&mProj,
+				(D3DXVECTOR3*)&mCam.GetPosition(),
+				m_pSky->GetSRV(),
 				pMesh);
         }
 

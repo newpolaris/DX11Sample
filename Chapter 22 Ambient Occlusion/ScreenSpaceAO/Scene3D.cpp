@@ -38,7 +38,6 @@ SceneRenderer::SceneRenderer()
     , m_Effect(NULL)
     , m_RenderSceneDiffusePass(NULL)
     , m_VarWVP(NULL)
-    , m_VarIsWhite(NULL)
 {
 }
 
@@ -73,7 +72,8 @@ void SceneRenderer::RecompileShader()
     m_VarWVP                 = m_Effect->GetVariableByName("g_WorldViewProjection")->AsMatrix();
     m_VarWV                  = m_Effect->GetVariableByName("g_WorldView")->AsMatrix();
     m_VarW                   = m_Effect->GetVariableByName("g_World")->AsMatrix();
-    m_VarIsWhite             = m_Effect->GetVariableByName("g_IsWhite")->AsScalar();
+	m_CubeMap                = m_Effect->GetVariableByName("gCubeMap")->AsShaderResource();
+	m_Eye                    = m_Effect->GetVariableByName("gEyePos")->AsVector();
 }
 
 //-----------------------------------------------------------------------------
@@ -137,10 +137,13 @@ HRESULT SceneRenderer::OnCreateDevice(ID3D11Device* pd3dDevice)
 //-----------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------
-HRESULT SceneRenderer::OnFrameRender(const D3DXMATRIX *p_mWorld,
-                                     const D3DXMATRIX *p_mView, 
-                                     const D3DXMATRIX *p_mProj,
-                                     SceneMesh *pMesh)
+HRESULT SceneRenderer::OnFrameRender(
+	const D3DXMATRIX *p_mWorld,
+	const D3DXMATRIX *p_mView,
+	const D3DXMATRIX *p_mProj,
+    D3DXVECTOR3 *p_mEye,
+    ID3D11ShaderResourceView *p_mCubMap,
+	SceneMesh *pMesh)
 {
     HRESULT hr = S_OK;
 
@@ -153,7 +156,8 @@ HRESULT SceneRenderer::OnFrameRender(const D3DXMATRIX *p_mWorld,
     m_VarWVP->SetMatrix(WVPMatrix);
     m_VarWV->SetMatrix(WVMatrix);
     m_VarW->SetMatrix(WMatrix);
-    m_VarIsWhite->SetBool(!pMesh->UseShading());
+	m_Eye->SetFloatVector((float*)p_mEye);
+	m_CubeMap->SetResource(p_mCubMap);
 
     // Draw mesh
     UINT Strides[1];
@@ -181,12 +185,14 @@ HRESULT SceneRenderer::OnFrameRender(const D3DXMATRIX *p_mWorld,
     if (pMesh->UseGroundPlane())
     {
         D3DXMATRIX mTranslate;
-        D3DXMatrixTranslation(&mTranslate, 0.0f, pMesh->GetGroundHeight(), 0.0f);
+		D3DXMatrixTranslation(&mTranslate, 0.0f, pMesh->GetGroundHeight(), 0.0f);
 
+        WMatrix = mTranslate * WMatrix;
         WVMatrix = mTranslate * WVMatrix;
         WVPMatrix = WVMatrix * (*p_mProj);
         m_VarWVP->SetMatrix(WVPMatrix);
         m_VarWV->SetMatrix(WVMatrix);
+		m_VarW->SetMatrix(WMatrix);
 
         UINT stride = sizeof(Scene3DVertex);
         UINT offset = 0;

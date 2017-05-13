@@ -8,10 +8,10 @@ class Sky
 {
 public:
 	Sky(ID3D11Device* pDevice, const std::wstring& cubemap_path, float skySphereRadius);
-
 	~Sky();
 
 	void Draw(ID3D11DeviceContext * dc, const Camera & camera);
+	ID3D11ShaderResourceView* GetSRV();
 
 private:
 	ID3D11Buffer* mVB;

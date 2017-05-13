@@ -15,15 +15,25 @@
 matrix g_WorldViewProjection;
 matrix g_WorldView;
 matrix g_World;
-bool   g_IsWhite;
+float3 gEyePos;
 
 Texture2D<float3> tColor;
+TextureCube gCubeMap;
 
 SamplerState PointSampler
 {
     Filter   = MIN_MAG_MIP_POINT;
     AddressU = Clamp;
     AddressV = Clamp;
+};
+
+SamplerState LinearSampler
+{
+	Filter = ANISOTROPIC;
+	MaxAnisotropy = 4;
+
+	AddressU = WRAP;
+	AddressV = WRAP;
 };
 
 //-----------------------------------------------------------------------------
@@ -39,7 +49,8 @@ struct VS_INPUT
 struct VS_OUTPUT
 {
     float4 HPosition    : SV_POSITION;
-    float3 PositionV    : POSITION;
+    float4 PositionW    : POSITION;
+    float  DepthV       : DEPTH;
     float3 NormalV      : NORMAL0;
 	float3 NormalW      : NORAML1;
 };
@@ -47,7 +58,8 @@ struct VS_OUTPUT
 struct PS_INPUT
 {
     float4 HPosition    : SV_POSITION;
-    float3 PositionV    : POSITION;
+    float4 PositionW    : POSITION;
+    float  DepthV       : DEPTH;
     float3 NormalV      : NORMAL;
 	float3 NormalW      : NORAML1;
 };
@@ -93,7 +105,8 @@ VS_OUTPUT GeometryVS( VS_INPUT input )
 {
     VS_OUTPUT output;
     output.HPosition = mul( float4(input.Pos,1), g_WorldViewProjection );
-    output.PositionV = mul( input.Pos, (float3x3)g_WorldView );
+    output.PositionW = mul( float4(input.Pos,1), g_World );
+    output.DepthV = mul( input.Pos, (float3x3)g_WorldView ).z;
 	output.NormalV = mul(input.Norm, (float3x3)g_WorldView);
 	output.NormalW = mul(input.Norm, (float3x3)g_World);
     return output;
@@ -102,10 +115,16 @@ VS_OUTPUT GeometryVS( VS_INPUT input )
 PSOutput GeometryPS( PS_INPUT In )
 {
 	PSOutput output;
-	output.Normal = float4(normalize(In.NormalV), In.PositionV.z);
+
+	In.NormalW = normalize(In.NormalW);
+	output.Normal = float4(normalize(In.NormalV), In.DepthV);
 	float3 light = normalize(float3(-1, 2, 1));
-	float intensity = dot(normalize(In.NormalW), light) * 0.5 + 0.5;
-	output.Diffuse = float4(.457, .722, 0.0, 1) * lerp(float4(0, 0.25, 0.75, 0), float4(1, 1, 1, 0), intensity);
+	float intensity = dot(In.NormalW, light) * 0.5 + 0.5;
+	float3 toEye = normalize(gEyePos - In.PositionW);
+	float3 incident = -toEye;
+	float3 reflectionVector = reflect(incident, In.NormalW);
+	float4 reflectionColor = gCubeMap.Sample(LinearSampler, reflectionVector);
+	output.Diffuse = reflectionColor; // *lerp(float4(0, 0.25, 0.75, 0), float4(1, 1, 1, 0), intensity);
 	return output;
 }
 

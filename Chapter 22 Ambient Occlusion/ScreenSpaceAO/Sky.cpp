@@ -100,3 +100,8 @@ void Sky::Draw(ID3D11DeviceContext* dc, const Camera& camera)
 		dc->DrawIndexed(mIndexCount, 0, 0);
 	}
 }
+
+ID3D11ShaderResourceView * Sky::GetSRV()
+{
+	return m_CubeMapTexture->GetSRV();
+}

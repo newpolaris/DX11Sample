@@ -121,10 +121,12 @@ public:
     SceneRenderer();
 
     HRESULT OnCreateDevice      ( ID3D11Device *pd3dDevice );
-    HRESULT OnFrameRender       ( const D3DXMATRIX *p_mWorld,
-                                  const D3DXMATRIX *p_mView,
-                                  const D3DXMATRIX *p_mProj,
-                                  SceneMesh *pMesh );
+	HRESULT OnFrameRender        (const D3DXMATRIX * p_mWorld,
+								  const D3DXMATRIX * p_mView,
+		                          const D3DXMATRIX * p_mProj,
+                                  D3DXVECTOR3 *p_mEye,
+		                          ID3D11ShaderResourceView * p_mCubMap,
+		                          SceneMesh * pMesh);
     void CopyColors(ID3D11ShaderResourceView *pColorSRV);
     HRESULT OnDestroyDevice     ();
 
@@ -152,5 +154,6 @@ private:
     ID3DX11EffectMatrixVariable *m_VarWVP;
     ID3DX11EffectMatrixVariable *m_VarWV;
     ID3DX11EffectMatrixVariable *m_VarW;
-    ID3DX11EffectScalarVariable *m_VarIsWhite;
+    ID3DX11EffectVectorVariable *m_Eye;
+	ID3DX11EffectShaderResourceVariable *m_CubeMap;
 };
