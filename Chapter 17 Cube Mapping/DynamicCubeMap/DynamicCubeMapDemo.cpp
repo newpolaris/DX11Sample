@@ -56,12 +56,13 @@ private:
 	ID3D11ShaderResourceView* mStoneTexSRV;
 	ID3D11ShaderResourceView* mBrickTexSRV;
 	
-	ID3D11DepthStencilView* mDynamicCubeMapDSV;
+	ID3D11DepthStencilView* mDynamicCubeMapDSV[6];
 	ID3D11RenderTargetView* mDynamicCubeMapRTV[6];
 	ID3D11ShaderResourceView* mDynamicCubeMapSRV;
+	ID3D11ShaderResourceView* mDynamicDepthCubeMapSRV;
 	D3D11_VIEWPORT mCubeMapViewport;
 
-	static const int CubeMapSize = 256;
+	static const int CubeMapSize = 1024;
 
 	DirectionalLight mDirLights[3];
 	Material mGridMat;
@@ -74,7 +75,6 @@ private:
 	// Define transformations from local spaces to world space.
 	XMFLOAT4X4 mSphereWorld[10];
 	XMFLOAT4X4 mCylWorld[10];
-	XMFLOAT4X4 mBoxWorld;
 	XMFLOAT4X4 mGridWorld;
 	XMFLOAT4X4 mSkullWorld;
 	XMFLOAT4X4 mCenterSphereWorld;
@@ -97,6 +97,7 @@ private:
 	UINT mSkullIndexCount;
 
 	UINT mLightCount;
+	UINT mShowCube;
 
 	Camera mCam;
 	Camera mCubeMapCamera[6];
@@ -125,7 +126,7 @@ DynamicCubeMapApp::DynamicCubeMapApp(HINSTANCE hInstance)
 : D3DApp(hInstance), mSky(0), 
   mShapesVB(0), mShapesIB(0), mSkullVB(0), mSkullIB(0),
   mFloorTexSRV(0), mStoneTexSRV(0), mBrickTexSRV(0), 
-  mDynamicCubeMapDSV(0), mDynamicCubeMapSRV(0),
+   mDynamicCubeMapSRV(0),
   mSkullIndexCount(0), mLightCount(3)
 {
 	mMainWndCaption = L"Dynamic CubeMap Demo";
@@ -140,17 +141,14 @@ DynamicCubeMapApp::DynamicCubeMapApp(HINSTANCE hInstance)
 	for(int i = 0; i < 6; ++i)
 	{
 		mDynamicCubeMapRTV[i] = 0;
+		mDynamicCubeMapDSV[i] = 0;
 	}
 
 	XMMATRIX I = XMMatrixIdentity();
 	XMStoreFloat4x4(&mGridWorld, I);
 
-	XMMATRIX boxScale = XMMatrixScaling(3.0f, 1.0f, 3.0f);
-	XMMATRIX boxOffset = XMMatrixTranslation(0.0f, 0.5f, 0.0f);
-	XMStoreFloat4x4(&mBoxWorld, XMMatrixMultiply(boxScale, boxOffset));
-
-	XMMATRIX centerSphereScale = XMMatrixScaling(2.0f, 2.0f, 2.0f);
-	XMMATRIX centerSphereOffset = XMMatrixTranslation(0.0f, 2.0f, 0.0f);
+	XMMATRIX centerSphereScale = XMMatrixScaling(5.0f, 10.0f, 5.0f);
+	XMMATRIX centerSphereOffset = XMMatrixTranslation(0.0f, 0.0f, 0.0f);
 	XMStoreFloat4x4(&mCenterSphereWorld, XMMatrixMultiply(centerSphereScale, centerSphereOffset));
 
 	for(int i = 0; i < 5; ++i)
@@ -192,8 +190,8 @@ DynamicCubeMapApp::DynamicCubeMapApp(HINSTANCE hInstance)
 	mSphereMat.Specular = XMFLOAT4(0.9f, 0.9f, 0.9f, 16.0f);
 	mSphereMat.Reflect  = XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
 
-	mBoxMat.Ambient  = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	mBoxMat.Diffuse  = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	mBoxMat.Ambient  = XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
+	mBoxMat.Diffuse  = XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
 	mBoxMat.Specular = XMFLOAT4(0.8f, 0.8f, 0.8f, 16.0f);
 	mBoxMat.Reflect  = XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
 
@@ -219,10 +217,12 @@ DynamicCubeMapApp::~DynamicCubeMapApp()
 	ReleaseCOM(mFloorTexSRV);
 	ReleaseCOM(mStoneTexSRV);
 	ReleaseCOM(mBrickTexSRV);
-	ReleaseCOM(mDynamicCubeMapDSV);
 	ReleaseCOM(mDynamicCubeMapSRV);
-	for(int i = 0; i < 6; ++i)
+	ReleaseCOM(mDynamicDepthCubeMapSRV);
+	for (int i = 0; i < 6; ++i) {
 		ReleaseCOM(mDynamicCubeMapRTV[i]);
+		ReleaseCOM(mDynamicCubeMapDSV[i]);
+	}
 
 	Effects::DestroyAll();
 	InputLayouts::DestroyAll(); 
@@ -280,6 +280,12 @@ void DynamicCubeMapApp::UpdateScene(float dt)
 	if( GetAsyncKeyState('D') & 0x8000 )
 		mCam.Strafe(10.0f*dt);
 
+	if( GetAsyncKeyState('Z') & 0x8000 )
+		mLightCount = 0; 
+
+	if( GetAsyncKeyState('X') & 0x8000 )
+		mLightCount = 1; 
+
 	//
 	// Switch the number of lights based on key presses.
 	//
@@ -318,11 +324,11 @@ void DynamicCubeMapApp::DrawScene()
 	{
 		// Clear cube map face and depth buffer.
 		md3dImmediateContext->ClearRenderTargetView(mDynamicCubeMapRTV[i], reinterpret_cast<const float*>(&Colors::Silver));
-		md3dImmediateContext->ClearDepthStencilView(mDynamicCubeMapDSV, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
+		md3dImmediateContext->ClearDepthStencilView(mDynamicCubeMapDSV[i], D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
 
 		// Bind cube map face as render target.
 		renderTargets[0] = mDynamicCubeMapRTV[i];
-		md3dImmediateContext->OMSetRenderTargets(1, renderTargets, mDynamicCubeMapDSV);
+		md3dImmediateContext->OMSetRenderTargets(1, renderTargets, mDynamicCubeMapDSV[i]);
 
 		// Draw the scene with the exception of the center sphere to this cube map face.
 		DrawScene(mCubeMapCamera[i], false);
@@ -335,6 +341,7 @@ void DynamicCubeMapApp::DrawScene()
 
     // Have hardware generate lower mipmap levels of cube map.
     md3dImmediateContext->GenerateMips(mDynamicCubeMapSRV);
+    md3dImmediateContext->GenerateMips(mDynamicDepthCubeMapSRV);
 	
 	// Now draw the scene as normal, but with the center sphere.
 	md3dImmediateContext->ClearRenderTargetView(mRenderTargetView, reinterpret_cast<const float*>(&Colors::Silver));
@@ -424,25 +431,6 @@ void DynamicCubeMapApp::DrawScene(const Camera& camera, bool drawCenterSphere)
 	// Draw the skull.
 	//
 	D3DX11_TECHNIQUE_DESC techDesc;
-	activeSkullTech->GetDesc( &techDesc );
-	for(UINT p = 0; p < techDesc.Passes; ++p)
-	{
-		md3dImmediateContext->IASetVertexBuffers(0, 1, &mSkullVB, &stride, &offset);
-		md3dImmediateContext->IASetIndexBuffer(mSkullIB, DXGI_FORMAT_R32_UINT, 0);
-
-		world = XMLoadFloat4x4(&mSkullWorld);
-		worldInvTranspose = MathHelper::InverseTranspose(world);
-		worldViewProj = world*view*proj;
-
-		Effects::BasicFX->SetWorld(world);
-		Effects::BasicFX->SetWorldInvTranspose(worldInvTranspose);
-		Effects::BasicFX->SetWorldViewProj(worldViewProj);
-		Effects::BasicFX->SetTexTransform(XMMatrixIdentity());
-		Effects::BasicFX->SetMaterial(mSkullMat);
-
-		activeSkullTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
-		md3dImmediateContext->DrawIndexed(mSkullIndexCount, 0, 0);
-	}
 
 	md3dImmediateContext->IASetVertexBuffers(0, 1, &mShapesVB, &stride, &offset);
 	md3dImmediateContext->IASetIndexBuffer(mShapesIB, DXGI_FORMAT_R32_UINT, 0);
@@ -468,21 +456,6 @@ void DynamicCubeMapApp::DrawScene(const Camera& camera, bool drawCenterSphere)
 
 		activeTexTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
 		md3dImmediateContext->DrawIndexed(mGridIndexCount, mGridIndexOffset, mGridVertexOffset);
-
-		// Draw the box.
-		world = XMLoadFloat4x4(&mBoxWorld);
-		worldInvTranspose = MathHelper::InverseTranspose(world);
-		worldViewProj = world*view*proj;
-
-		Effects::BasicFX->SetWorld(world);
-		Effects::BasicFX->SetWorldInvTranspose(worldInvTranspose);
-		Effects::BasicFX->SetWorldViewProj(worldViewProj);
-		Effects::BasicFX->SetTexTransform(XMMatrixIdentity());
-		Effects::BasicFX->SetMaterial(mBoxMat);
-		Effects::BasicFX->SetDiffuseMap(mStoneTexSRV);
-
-		activeTexTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
-		md3dImmediateContext->DrawIndexed(mBoxIndexCount, mBoxIndexOffset, mBoxVertexOffset);
 
 		// Draw the cylinders.
 		for(int i = 0; i < 10; ++i)
@@ -529,8 +502,6 @@ void DynamicCubeMapApp::DrawScene(const Camera& camera, bool drawCenterSphere)
 		activeReflectTech->GetDesc( &techDesc );
 		for(UINT p = 0; p < techDesc.Passes; ++p)
 		{
-			// Draw the center sphere.
-
 			world = XMLoadFloat4x4(&mCenterSphereWorld);
 			worldInvTranspose = MathHelper::InverseTranspose(world);
 			worldViewProj = world*view*proj;
@@ -544,7 +515,9 @@ void DynamicCubeMapApp::DrawScene(const Camera& camera, bool drawCenterSphere)
 			Effects::BasicFX->SetCubeMap(mDynamicCubeMapSRV);
 
 			activeReflectTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
-			md3dImmediateContext->DrawIndexed(mSphereIndexCount, mSphereIndexOffset, mSphereVertexOffset);
+			// md3dImmediateContext->DrawIndexed(mSphereIndexCount, mSphereIndexOffset, mSphereVertexOffset);
+			md3dImmediateContext->DrawIndexed(mBoxIndexCount, mBoxIndexOffset, mBoxVertexOffset);
+
 		}
 	}
 
@@ -653,28 +626,42 @@ void DynamicCubeMapApp::BuildDynamicCubeMapViews()
 	D3D11_TEXTURE2D_DESC depthTexDesc;
     depthTexDesc.Width = CubeMapSize;
     depthTexDesc.Height = CubeMapSize;
-    depthTexDesc.MipLevels = 1;
-    depthTexDesc.ArraySize = 1;
+    depthTexDesc.MipLevels = 0;
+    depthTexDesc.ArraySize = 6;
     depthTexDesc.SampleDesc.Count = 1;
     depthTexDesc.SampleDesc.Quality = 0;
-    depthTexDesc.Format = DXGI_FORMAT_D32_FLOAT;
+    depthTexDesc.Format = DXGI_FORMAT_R32_TYPELESS;
     depthTexDesc.Usage = D3D11_USAGE_DEFAULT;
-    depthTexDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+    depthTexDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
     depthTexDesc.CPUAccessFlags = 0;
-    depthTexDesc.MiscFlags = 0;
+    depthTexDesc.MiscFlags = D3D11_RESOURCE_MISC_TEXTURECUBE;
 
 	ID3D11Texture2D* depthTex = 0;
     HR(md3dDevice->CreateTexture2D(&depthTexDesc, 0, &depthTex));
 
-    // Create the depth stencil view for the entire cube
     D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc;
-    dsvDesc.Format = depthTexDesc.Format;
-	dsvDesc.Flags  = 0;
-    dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
-    dsvDesc.Texture2D.MipSlice = 0;
-    HR(md3dDevice->CreateDepthStencilView(depthTex, &dsvDesc, &mDynamicCubeMapDSV));
+    dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;
+    dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DARRAY;
+    dsvDesc.Texture2DArray.ArraySize = 1;
+    dsvDesc.Texture2DArray.MipSlice = 0;
+	dsvDesc.Flags = 0;
+
+    for(int i = 0; i < 6; ++i)
+    {
+        dsvDesc.Texture2DArray.FirstArraySlice = i;
+        HR(md3dDevice->CreateDepthStencilView(depthTex, &dsvDesc, &mDynamicCubeMapDSV[i]));
+    }
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC depthCubDesc;
+    depthCubDesc.Format = DXGI_FORMAT_R32_FLOAT;
+    depthCubDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
+    depthCubDesc.TextureCube.MostDetailedMip = 0;
+	depthCubDesc.TextureCube.MipLevels = -1;
+
+    HR(md3dDevice->CreateShaderResourceView(depthTex, &depthCubDesc, &mDynamicDepthCubeMapSRV));
 
 	ReleaseCOM(depthTex);
+
 
 	//
 	// Viewport for drawing into cubemap.
