@@ -37,7 +37,7 @@ public:
 
 private:
 	void DrawScene(const Camera& camera, bool drawSkull);
-	void BuildCubeFaceCamera(float x, float y, float z);
+	void BuildCubeFaceCamera();
 	void BuildDynamicCubeMapViews();
 	void BuildShapeGeometryBuffers();
 	void BuildSkullGeometryBuffers();
@@ -103,6 +103,9 @@ private:
 	Camera mCubeMapCamera[6];
 
 	POINT mLastMousePos;
+
+	XMFLOAT3 mEnvCenter;
+	float mRadius;
 };
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -136,7 +139,10 @@ DynamicCubeMapApp::DynamicCubeMapApp(HINSTANCE hInstance)
 
 	mCam.SetPosition(0.0f, 2.0f, -15.0f);
 
-	BuildCubeFaceCamera(0.0f, 2.0f, 0.0f);
+	mEnvCenter = XMFLOAT3(0, 2, 0);
+	mRadius = -4.6;
+
+	BuildCubeFaceCamera();
 
 	for(int i = 0; i < 6; ++i)
 	{
@@ -286,6 +292,12 @@ void DynamicCubeMapApp::UpdateScene(float dt)
 	if( GetAsyncKeyState('X') & 0x8000 )
 		mLightCount = 1; 
 
+	if( GetAsyncKeyState('Q') & 0x8000 )
+		mRadius += dt*20; 
+
+	if( GetAsyncKeyState('E') & 0x8000 )
+		mRadius -= dt*20; 
+
 	//
 	// Switch the number of lights based on key presses.
 	//
@@ -312,6 +324,32 @@ void DynamicCubeMapApp::UpdateScene(float dt)
 	XMStoreFloat4x4(&mSkullWorld, skullScale*skullLocalRotate*skullOffset*skullGlobalRotate);
 
 	mCam.UpdateViewMatrix();
+
+	static int frameCnt = 0;
+	static float timeElapsed = 0.0f;
+
+	frameCnt++;
+
+	// Compute averages over one second period.
+	if ((mTimer.TotalTime() - timeElapsed) >= 1.0f)
+	{
+		float fps = (float)frameCnt; // fps = frameCnt / 1
+		float mspf = 1000.0f / fps;
+
+		// Reset for next average.
+		frameCnt = 0;
+		timeElapsed += 1.0f;
+		std::wostringstream outs;
+		outs.precision(6);
+		outs << mMainWndCaption << L"    "
+			<< L"FPS: " << fps << L"    "
+			<< L"Frame Time: " << mspf << L" (ms)    "
+			<< L"X: " << mCam.GetPosition().x << L", "
+			<< L"Y: " << mCam.GetPosition().y << L", "
+			<< L"Z: " << mCam.GetPosition().y << L", "
+			<< L"Radius " << mRadius;
+		SetWindowText(mhMainWnd, outs.str().c_str());
+	}
 }
 
 void DynamicCubeMapApp::DrawScene()
@@ -341,7 +379,6 @@ void DynamicCubeMapApp::DrawScene()
 
     // Have hardware generate lower mipmap levels of cube map.
     md3dImmediateContext->GenerateMips(mDynamicCubeMapSRV);
-    md3dImmediateContext->GenerateMips(mDynamicDepthCubeMapSRV);
 	
 	// Now draw the scene as normal, but with the center sphere.
 	md3dImmediateContext->ClearRenderTargetView(mRenderTargetView, reinterpret_cast<const float*>(&Colors::Silver));
@@ -398,6 +435,8 @@ void DynamicCubeMapApp::DrawScene(const Camera& camera, bool drawCenterSphere)
 	// Set per frame constants.
 	Effects::BasicFX->SetDirLights(mDirLights);
 	Effects::BasicFX->SetEyePosW(mCam.GetPosition());
+	Effects::BasicFX->SetEnvMapCenterW(mEnvCenter);
+	Effects::BasicFX->SetRaidus(mRadius);
  
 	// Figure out which technique to use.   
 
@@ -528,12 +567,12 @@ void DynamicCubeMapApp::DrawScene(const Camera& camera, bool drawCenterSphere)
 	md3dImmediateContext->OMSetDepthStencilState(0, 0);
 }
 
-void DynamicCubeMapApp::BuildCubeFaceCamera(float x, float y, float z)
+void DynamicCubeMapApp::BuildCubeFaceCamera()
 {
 	// Generate the cube map about the given position.
-	XMFLOAT3 center(x, y, z);
 	XMFLOAT3 worldUp(0.0f, 1.0f, 0.0f);
-
+  
+	float x = mEnvCenter.x, y = mEnvCenter.y, z = mEnvCenter.z;
 	// Look along each coordinate axis.
 	XMFLOAT3 targets[6] = 
 	{
@@ -559,7 +598,7 @@ void DynamicCubeMapApp::BuildCubeFaceCamera(float x, float y, float z)
 
 	for(int i = 0; i < 6; ++i)
 	{
-		mCubeMapCamera[i].LookAt(center, targets[i], ups[i]);
+		mCubeMapCamera[i].LookAt(mEnvCenter, targets[i], ups[i]);
 		mCubeMapCamera[i].SetLens(0.5f*XM_PI, 1.0f, 0.1f, 1000.0f);
 		mCubeMapCamera[i].UpdateViewMatrix();
 	}
@@ -683,7 +722,7 @@ void DynamicCubeMapApp::BuildShapeGeometryBuffers()
 	GeometryGenerator::MeshData cylinder;
 
 	GeometryGenerator geoGen;
-	geoGen.CreateBox(1.0f, 1.0f, 1.0f, box);
+	geoGen.CreateBox(0.1f, 1.0f, 1.0f, box);
 	geoGen.CreateGrid(20.0f, 30.0f, 60, 40, grid);
 	geoGen.CreateSphere(0.5f, 20, 20, sphere);
 	geoGen.CreateCylinder(0.5f, 0.3f, 3.0f, 20, 20, cylinder);

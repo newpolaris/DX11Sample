@@ -5,6 +5,8 @@
 //=============================================================================
 
 #include "LightHelper.fx"
+
+// #define PROJECT_SPHERE
  
 cbuffer cbPerFrame
 {
@@ -14,6 +16,8 @@ cbuffer cbPerFrame
 	float  gFogStart;
 	float  gFogRange;
 	float4 gFogColor; 
+	float3 gEnvMapCenterW;
+	float  gRadius;
 }; 
 
 cbuffer cbPerObject
@@ -69,6 +73,39 @@ VertexOut VS(VertexIn vin)
 
 	return vout;
 }
+
+// [Advance renderMan] simple quaratic eq solver
+float raysphere(
+	float3 E, float3 I,
+	float r,
+	float eps,
+	out float t0, out float t1)
+{
+	float b = 2 * dot(E, I);
+	float c = dot(E, E) - r*r;
+	float discrim = b*b - 4 * c;
+	float solutions;
+	if (discrim > 0) {
+		discrim = sqrt(discrim);
+		t0 = (-discrim - b) / 2;
+		if (t0 > eps) {
+			t1 = (discrim - b) / 2;
+			solutions = 2;
+		}
+		else {
+			t0 = (discrim - b) / 2;
+			solutions = (t0 > eps) ? 1 : 0;
+		}
+	}
+	else if (discrim == 0) {
+		t0 = -b / 2;
+		solutions = (t0 > eps) ? 1 : 0;
+	} else {
+		solutions = 0;
+	}
+	return solutions;
+}
+
  
 float4 PS(VertexOut pin, 
           uniform int gLightCount, 
@@ -132,13 +169,29 @@ float4 PS(VertexOut pin,
 
 		litColor = texColor*(ambient + diffuse) + spec;
 
-		if( gReflectionEnabled )
+		if ( gReflectionEnabled )
 		{
 			float3 incident = -toEye;
+#ifdef PROJECT_SPHERE
 			float3 reflectionVector = refract(incident, pin.NormalW, 1.0);
-			float4 reflectionColor  = gCubeMap.Sample(samAnisotropic, reflectionVector);
-
-			litColor += gMaterial.Reflect*reflectionColor;
+			float t0, t1;
+			if (raysphere(gEyePosW, reflectionVector, gRadius, 1.0e-4, t0, t1) > 0)
+			{
+				float3 correctedVec = reflectionVector*t0 + gEyePosW - gEnvMapCenterW;
+				float4 reflectionColor = gCubeMap.Sample(samAnisotropic, correctedVec);
+				litColor += gMaterial.Reflect*reflectionColor;
+			}
+#else // PROJECT_BOX
+			float3 n = float3(1, 0, 0);
+			float t = dot(-n, gEyePosW) - gRadius;
+			float nu = dot(n, incident);
+			t = t / nu;
+			if (t > 0) {
+				float3 correctedVec = normalize(incident * t / nu + (gEyePosW - gEnvMapCenterW));
+				float4 reflectionColor = gCubeMap.Sample(samAnisotropic, correctedVec);
+				litColor += gMaterial.Reflect*reflectionColor;
+			}
+#endif
 		}
 	}
  

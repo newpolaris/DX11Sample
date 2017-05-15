@@ -100,6 +100,8 @@ BasicEffect::BasicEffect(ID3D11Device* device, const std::wstring& filename)
 	Mat               = mFX->GetVariableByName("gMaterial");
 	DiffuseMap        = mFX->GetVariableByName("gDiffuseMap")->AsShaderResource();
 	CubeMap           = mFX->GetVariableByName("gCubeMap")->AsShaderResource();
+	EnvMapCenterW     = mFX->GetVariableByName("gEnvMapCenterW")->AsVector();
+	Radius            = mFX->GetVariableByName("gRadius")->AsScalar();
 }
 
 BasicEffect::~BasicEffect()

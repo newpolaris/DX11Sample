@@ -122,7 +122,7 @@ PSOutput GeometryPS( PS_INPUT In )
 	float intensity = dot(In.NormalW, light) * 0.5 + 0.5;
 	float3 toEye = normalize(gEyePos - In.PositionW);
 	float3 incident = -toEye;
-	float3 reflectionVector = refract(incident, In.NormalW, 0.8);
+	float3 reflectionVector = refract(incident, In.NormalW, 1.0);
 	float4 reflectionColor = gCubeMap.Sample(LinearSampler, reflectionVector);
 	output.Diffuse = reflectionColor; // *lerp(float4(0, 0.25, 0.75, 0), float4(1, 1, 1, 0), intensity);
 	return output;
