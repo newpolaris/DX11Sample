@@ -1,11 +1,10 @@
 //--------------------------------------------------------------------------------------
 // File: PnAES.hlsl
 //
-// These shaders implement the PN-Triangles tessellation technique
+// These shaders implement the PN-AES Triangles tessellation technique
 //
-// Contributed by the AMD Developer Relations Team
-//
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copy from NVIDIA's PN-AEN whitepaper
+// Some modifications made to test QUADRATIC_NORMAL etc
 //--------------------------------------------------------------------------------------
 
 // #define QUADRATIC_NORMAL

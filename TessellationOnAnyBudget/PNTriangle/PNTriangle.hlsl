@@ -3,9 +3,8 @@
 //
 // These shaders implement the PN-Triangles tessellation technique
 //
-// Contributed by the AMD Developer Relations Team
-//
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copy from NVIDIA's PN-AES whitepaper
+// Some modifications made to fit PN-Triangle algorithm (removed AES part)
 //--------------------------------------------------------------------------------------
 
 // #define QUADRATIC_NORMAL
