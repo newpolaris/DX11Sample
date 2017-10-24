@@ -20,7 +20,7 @@
 #include "Camera.h"
 #include "Sky.h"
 
-class DynamicCubeMapApp : public D3DApp 
+class DynamicCubeMapApp : public D3DApp
 {
 public:
 	DynamicCubeMapApp(HINSTANCE hInstance);
@@ -29,7 +29,7 @@ public:
 	bool Init();
 	void OnResize();
 	void UpdateScene(float dt);
-	void DrawScene(); 
+	void DrawScene();
 
 	void OnMouseDown(WPARAM btnState, int x, int y);
 	void OnMouseUp(WPARAM btnState, int x, int y);
@@ -55,7 +55,7 @@ private:
 	ID3D11ShaderResourceView* mFloorTexSRV;
 	ID3D11ShaderResourceView* mStoneTexSRV;
 	ID3D11ShaderResourceView* mBrickTexSRV;
-	
+
 	ID3D11DepthStencilView* mDynamicCubeMapDSV[6];
 	ID3D11RenderTargetView* mDynamicCubeMapRTV[6];
 	ID3D11ShaderResourceView* mDynamicCubeMapSRV;
@@ -117,23 +117,23 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 #endif
 
 	DynamicCubeMapApp theApp(hInstance);
-	
+
 	if( !theApp.Init() )
 		return 0;
-	
+
 	return theApp.Run();
 }
- 
+
 
 DynamicCubeMapApp::DynamicCubeMapApp(HINSTANCE hInstance)
-: D3DApp(hInstance), mSky(0), 
+: D3DApp(hInstance), mSky(0),
   mShapesVB(0), mShapesIB(0), mSkullVB(0), mSkullIB(0),
-  mFloorTexSRV(0), mStoneTexSRV(0), mBrickTexSRV(0), 
+  mFloorTexSRV(0), mStoneTexSRV(0), mBrickTexSRV(0),
    mDynamicCubeMapSRV(0),
   mSkullIndexCount(0), mLightCount(3)
 {
 	mMainWndCaption = L"Dynamic CubeMap Demo";
-	
+
 	mLastMousePos.x = 0;
 	mLastMousePos.y = 0;
 
@@ -184,7 +184,7 @@ DynamicCubeMapApp::DynamicCubeMapApp(HINSTANCE hInstance)
 	mGridMat.Ambient  = XMFLOAT4(0.8f, 0.8f, 0.8f, 1.0f);
 	mGridMat.Diffuse  = XMFLOAT4(0.8f, 0.8f, 0.8f, 1.0f);
 	mGridMat.Specular = XMFLOAT4(0.8f, 0.8f, 0.8f, 16.0f);
-	mGridMat.Reflect  = XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f);
+	mGridMat.Reflect  = XMFLOAT4(0.8f, 0.8f, 0.8f, 1.0f);
 
 	mCylinderMat.Ambient  = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 	mCylinderMat.Diffuse  = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -231,7 +231,7 @@ DynamicCubeMapApp::~DynamicCubeMapApp()
 	}
 
 	Effects::DestroyAll();
-	InputLayouts::DestroyAll(); 
+	InputLayouts::DestroyAll();
 }
 
 bool DynamicCubeMapApp::Init()
@@ -245,20 +245,20 @@ bool DynamicCubeMapApp::Init()
 
 	mSky = new Sky(md3dDevice, L"Textures/sunsetcube1024.dds", 5000.0f);
 
-	HR(D3DX11CreateShaderResourceViewFromFile(md3dDevice, 
+	HR(D3DX11CreateShaderResourceViewFromFile(md3dDevice,
 		L"Textures/floor.dds", 0, 0, &mFloorTexSRV, 0 ));
 
-	HR(D3DX11CreateShaderResourceViewFromFile(md3dDevice, 
+	HR(D3DX11CreateShaderResourceViewFromFile(md3dDevice,
 		L"Textures/stone.dds", 0, 0, &mStoneTexSRV, 0 ));
 
-	HR(D3DX11CreateShaderResourceViewFromFile(md3dDevice, 
+	HR(D3DX11CreateShaderResourceViewFromFile(md3dDevice,
 		L"Textures/bricks.dds", 0, 0, &mBrickTexSRV, 0 ));
 
 	BuildDynamicCubeMapViews();
 
 	BuildShapeGeometryBuffers();
 	BuildSkullGeometryBuffers();
- 
+
 	return true;
 }
 
@@ -287,31 +287,31 @@ void DynamicCubeMapApp::UpdateScene(float dt)
 		mCam.Strafe(10.0f*dt);
 
 	if( GetAsyncKeyState('Z') & 0x8000 )
-		mLightCount = 0; 
+		mLightCount = 0;
 
 	if( GetAsyncKeyState('X') & 0x8000 )
-		mLightCount = 1; 
+		mLightCount = 1;
 
 	if( GetAsyncKeyState('Q') & 0x8000 )
-		mRadius += dt*20; 
+		mRadius += dt*20;
 
 	if( GetAsyncKeyState('E') & 0x8000 )
-		mRadius -= dt*20; 
+		mRadius -= dt*20;
 
 	//
 	// Switch the number of lights based on key presses.
 	//
 	if( GetAsyncKeyState('0') & 0x8000 )
-		mLightCount = 0; 
+		mLightCount = 0;
 
 	if( GetAsyncKeyState('1') & 0x8000 )
-		mLightCount = 1; 
+		mLightCount = 1;
 
 	if( GetAsyncKeyState('2') & 0x8000 )
-		mLightCount = 2; 
+		mLightCount = 2;
 
 	if( GetAsyncKeyState('3') & 0x8000 )
-		mLightCount = 3; 
+		mLightCount = 3;
 
 	//
 	// Animate the skull around the center sphere.
@@ -379,11 +379,11 @@ void DynamicCubeMapApp::DrawScene()
 
     // Have hardware generate lower mipmap levels of cube map.
     md3dImmediateContext->GenerateMips(mDynamicCubeMapSRV);
-	
+
 	// Now draw the scene as normal, but with the center sphere.
 	md3dImmediateContext->ClearRenderTargetView(mRenderTargetView, reinterpret_cast<const float*>(&Colors::Silver));
 	md3dImmediateContext->ClearDepthStencilView(mDepthStencilView, D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0);
-	
+
 	DrawScene(mCam, true);
 
 	HR(mSwapChain->Present(0, 0));
@@ -417,15 +417,15 @@ void DynamicCubeMapApp::OnMouseMove(WPARAM btnState, int x, int y)
 	mLastMousePos.x = x;
 	mLastMousePos.y = y;
 }
- 
+
 void DynamicCubeMapApp::DrawScene(const Camera& camera, bool drawCenterSphere)
 {
 	md3dImmediateContext->IASetInputLayout(InputLayouts::Basic32);
     md3dImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
- 
+
 	UINT stride = sizeof(Vertex::Basic32);
     UINT offset = 0;
- 
+
 	XMMATRIX view     = camera.View();
 	XMMATRIX proj     = camera.Proj();
 	XMMATRIX viewProj = camera.ViewProj();
@@ -437,8 +437,8 @@ void DynamicCubeMapApp::DrawScene(const Camera& camera, bool drawCenterSphere)
 	Effects::BasicFX->SetEyePosW(mCam.GetPosition());
 	Effects::BasicFX->SetEnvMapCenterW(mEnvCenter);
 	Effects::BasicFX->SetRaidus(mRadius);
- 
-	// Figure out which technique to use.   
+
+	// Figure out which technique to use.
 
 	ID3DX11EffectTechnique* activeTexTech     = Effects::BasicFX->Light1TexTech;
 	ID3DX11EffectTechnique* activeSkullTech     = Effects::BasicFX->Light1Tech;
@@ -476,27 +476,12 @@ void DynamicCubeMapApp::DrawScene(const Camera& camera, bool drawCenterSphere)
 
 	//
 	// Draw the grid, cylinders, spheres and box without any cubemap reflection.
-	// 
-    
+	//
+
     activeTexTech->GetDesc( &techDesc );
     for(UINT p = 0; p < techDesc.Passes; ++p)
     {
-		// Draw the grid.
-		world = XMLoadFloat4x4(&mGridWorld);
-		worldInvTranspose = MathHelper::InverseTranspose(world);
-		worldViewProj = world*view*proj;
-
-		Effects::BasicFX->SetWorld(world);
-		Effects::BasicFX->SetWorldInvTranspose(worldInvTranspose);
-		Effects::BasicFX->SetWorldViewProj(worldViewProj);
-		Effects::BasicFX->SetTexTransform(XMMatrixScaling(6.0f, 8.0f, 1.0f));
-		Effects::BasicFX->SetMaterial(mGridMat);
-		Effects::BasicFX->SetDiffuseMap(mFloorTexSRV);
-
-		activeTexTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
-		md3dImmediateContext->DrawIndexed(mGridIndexCount, mGridIndexOffset, mGridVertexOffset);
-
-		// Draw the cylinders.
+			// Draw the cylinders.
 		for(int i = 0; i < 10; ++i)
 		{
 			world = XMLoadFloat4x4(&mCylWorld[i]);
@@ -538,26 +523,43 @@ void DynamicCubeMapApp::DrawScene(const Camera& camera, bool drawCenterSphere)
 	//
 	if(drawCenterSphere)
 	{
+
 		activeReflectTech->GetDesc( &techDesc );
 		for(UINT p = 0; p < techDesc.Passes; ++p)
 		{
-			world = XMLoadFloat4x4(&mCenterSphereWorld);
-			worldInvTranspose = MathHelper::InverseTranspose(world);
-			worldViewProj = world*view*proj;
+            // Draw the grid.
+            world = XMLoadFloat4x4( &mGridWorld );
+            worldInvTranspose = MathHelper::InverseTranspose( world );
+            worldViewProj = world*view*proj;
 
-			Effects::BasicFX->SetWorld(world);
-			Effects::BasicFX->SetWorldInvTranspose(worldInvTranspose);
-			Effects::BasicFX->SetWorldViewProj(worldViewProj);
-			Effects::BasicFX->SetTexTransform(XMMatrixIdentity());
-			Effects::BasicFX->SetMaterial(mCenterSphereMat);
-			Effects::BasicFX->SetDiffuseMap(mStoneTexSRV);
-			Effects::BasicFX->SetCubeMap(mDynamicCubeMapSRV);
+            Effects::BasicFX->SetWorld( world );
+            Effects::BasicFX->SetWorldInvTranspose( worldInvTranspose );
+            Effects::BasicFX->SetWorldViewProj( worldViewProj );
+            Effects::BasicFX->SetTexTransform( XMMatrixScaling( 1.0f, 1.0f, 1.0f ) );
+            Effects::BasicFX->SetMaterial( mGridMat );
+            Effects::BasicFX->SetDiffuseMap( mFloorTexSRV );
+            Effects::BasicFX->SetCubeMap( mDynamicCubeMapSRV );
 
-			activeReflectTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
-			// md3dImmediateContext->DrawIndexed(mSphereIndexCount, mSphereIndexOffset, mSphereVertexOffset);
-			md3dImmediateContext->DrawIndexed(mBoxIndexCount, mBoxIndexOffset, mBoxVertexOffset);
+            activeReflectTech->GetPassByIndex( p )->Apply( 0, md3dImmediateContext );
+            md3dImmediateContext->DrawIndexed( mGridIndexCount, mGridIndexOffset, mGridVertexOffset );
 
-		}
+            world = XMLoadFloat4x4( &mCenterSphereWorld );
+            worldInvTranspose = MathHelper::InverseTranspose( world );
+            worldViewProj = world*view*proj;
+
+            Effects::BasicFX->SetWorld( world );
+            Effects::BasicFX->SetWorldInvTranspose( worldInvTranspose );
+            Effects::BasicFX->SetWorldViewProj( worldViewProj );
+            Effects::BasicFX->SetTexTransform( XMMatrixIdentity() );
+            Effects::BasicFX->SetMaterial( mCenterSphereMat );
+            Effects::BasicFX->SetDiffuseMap( mStoneTexSRV );
+            Effects::BasicFX->SetCubeMap( mDynamicCubeMapSRV );
+
+            activeReflectTech->GetPassByIndex( p )->Apply( 0, md3dImmediateContext );
+            // md3dImmediateContext->DrawIndexed(mSphereIndexCount, mSphereIndexOffset, mSphereVertexOffset);
+            md3dImmediateContext->DrawIndexed( mBoxIndexCount, mBoxIndexOffset, mBoxVertexOffset );
+
+        }
 	}
 
 	mSky->Draw(md3dImmediateContext, camera);
@@ -571,10 +573,10 @@ void DynamicCubeMapApp::BuildCubeFaceCamera()
 {
 	// Generate the cube map about the given position.
 	XMFLOAT3 worldUp(0.0f, 1.0f, 0.0f);
-  
+
 	float x = mEnvCenter.x, y = mEnvCenter.y, z = mEnvCenter.z;
 	// Look along each coordinate axis.
-	XMFLOAT3 targets[6] = 
+	XMFLOAT3 targets[6] =
 	{
 		XMFLOAT3(x+1.0f, y, z), // +X
 		XMFLOAT3(x-1.0f, y, z), // -X
@@ -586,7 +588,7 @@ void DynamicCubeMapApp::BuildCubeFaceCamera()
 
 	// Use world up vector (0,1,0) for all directions except +Y/-Y.  In these cases, we
 	// are looking down +Y or -Y, so we need a different "up" vector.
-	XMFLOAT3 ups[6] = 
+	XMFLOAT3 ups[6] =
 	{
 		XMFLOAT3(0.0f, 1.0f, 0.0f),  // +X
 		XMFLOAT3(0.0f, 1.0f, 0.0f),  // -X
@@ -609,7 +611,7 @@ void DynamicCubeMapApp::BuildDynamicCubeMapViews()
 	//
 	// Cubemap is a special texture array with 6 elements.
 	//
-    
+
 	D3D11_TEXTURE2D_DESC texDesc;
     texDesc.Width = CubeMapSize;
     texDesc.Height = CubeMapSize;
@@ -627,9 +629,9 @@ void DynamicCubeMapApp::BuildDynamicCubeMapViews()
     HR(md3dDevice->CreateTexture2D(&texDesc, 0, &cubeTex));
 
 	 //
-	 // Create a render target view to each cube map face 
+	 // Create a render target view to each cube map face
 	 // (i.e., each element in the texture array).
-	 // 
+	 //
 
     D3D11_RENDER_TARGET_VIEW_DESC rtvDesc;
     rtvDesc.Format = texDesc.Format;
@@ -659,7 +661,7 @@ void DynamicCubeMapApp::BuildDynamicCubeMapViews()
 
 	//
 	// We need a depth texture for rendering the scene into the cubemap
-	// that has the same resolution as the cubemap faces.  
+	// that has the same resolution as the cubemap faces.
 	//
 
 	D3D11_TEXTURE2D_DESC depthTexDesc;
@@ -704,7 +706,7 @@ void DynamicCubeMapApp::BuildDynamicCubeMapViews()
 
 	//
 	// Viewport for drawing into cubemap.
-	// 
+	//
 
 	mCubeMapViewport.TopLeftX = 0.0f;
     mCubeMapViewport.TopLeftY = 0.0f;
@@ -744,16 +746,16 @@ void DynamicCubeMapApp::BuildShapeGeometryBuffers()
 	mGridIndexOffset     = mBoxIndexCount;
 	mSphereIndexOffset   = mGridIndexOffset + mGridIndexCount;
 	mCylinderIndexOffset = mSphereIndexOffset + mSphereIndexCount;
-	
-	UINT totalVertexCount = 
-		box.Vertices.size() + 
-		grid.Vertices.size() + 
+
+	UINT totalVertexCount =
+		box.Vertices.size() +
+		grid.Vertices.size() +
 		sphere.Vertices.size() +
 		cylinder.Vertices.size();
 
-	UINT totalIndexCount = 
-		mBoxIndexCount + 
-		mGridIndexCount + 
+	UINT totalIndexCount =
+		mBoxIndexCount +
+		mGridIndexCount +
 		mSphereIndexCount +
 		mCylinderIndexCount;
 
@@ -823,11 +825,11 @@ void DynamicCubeMapApp::BuildShapeGeometryBuffers()
     iinitData.pSysMem = &indices[0];
     HR(md3dDevice->CreateBuffer(&ibd, &iinitData, &mShapesIB));
 }
-  
+
 void DynamicCubeMapApp::BuildSkullGeometryBuffers()
 {
 	std::ifstream fin("Models/skull.txt");
-	
+
 	if(!fin)
 	{
 		MessageBox(0, L"Models/skull.txt not found.", 0, 0);
@@ -841,7 +843,7 @@ void DynamicCubeMapApp::BuildSkullGeometryBuffers()
 	fin >> ignore >> vcount;
 	fin >> ignore >> tcount;
 	fin >> ignore >> ignore >> ignore >> ignore;
-	
+
 	std::vector<Vertex::Basic32> vertices(vcount);
 	for(UINT i = 0; i < vcount; ++i)
 	{

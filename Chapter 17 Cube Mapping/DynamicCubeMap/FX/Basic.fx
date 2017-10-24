@@ -7,7 +7,7 @@
 #include "LightHelper.fx"
 
 // #define PROJECT_SPHERE
- 
+
 cbuffer cbPerFrame
 {
 	DirectionalLight gDirLights[3];
@@ -15,10 +15,10 @@ cbuffer cbPerFrame
 
 	float  gFogStart;
 	float  gFogRange;
-	float4 gFogColor; 
+	float4 gFogColor;
 	float3 gEnvMapCenterW;
 	float  gRadius;
-}; 
+};
 
 cbuffer cbPerObject
 {
@@ -27,7 +27,7 @@ cbuffer cbPerObject
 	float4x4 gWorldViewProj;
 	float4x4 gTexTransform;
 	Material gMaterial;
-}; 
+};
 
 // Nonnumeric values cannot be added to a cbuffer.
 Texture2D gDiffuseMap;
@@ -41,7 +41,7 @@ SamplerState samAnisotropic
 	AddressU = WRAP;
 	AddressV = WRAP;
 };
- 
+
 struct VertexIn
 {
 	float3 PosL    : POSITION;
@@ -60,14 +60,14 @@ struct VertexOut
 VertexOut VS(VertexIn vin)
 {
 	VertexOut vout;
-	
+
 	// Transform to world space space.
 	vout.PosW    = mul(float4(vin.PosL, 1.0f), gWorld).xyz;
 	vout.NormalW = mul(vin.NormalL, (float3x3)gWorldInvTranspose);
-		
+
 	// Transform to homogeneous clip space.
 	vout.PosH = mul(float4(vin.PosL, 1.0f), gWorldViewProj);
-	
+
 	// Output vertex attributes for interpolation across triangle.
 	vout.Tex = mul(float4(vin.Tex, 0.0f, 1.0f), gTexTransform).xy;
 
@@ -106,12 +106,12 @@ float raysphere(
 	return solutions;
 }
 
- 
-float4 PS(VertexOut pin, 
-          uniform int gLightCount, 
-		  uniform bool gUseTexure, 
-		  uniform bool gAlphaClip, 
-		  uniform bool gFogEnabled, 
+
+float4 PS(VertexOut pin,
+          uniform int gLightCount,
+		  uniform bool gUseTexure,
+		  uniform bool gAlphaClip,
+		  uniform bool gFogEnabled,
 		  uniform bool gReflectionEnabled) : SV_Target
 {
 	// Interpolating normal can unnormalize it, so normalize it.
@@ -125,7 +125,7 @@ float4 PS(VertexOut pin,
 
 	// Normalize.
 	toEye /= distToEye;
-	
+
     // Default to multiplicative identity.
     float4 texColor = float4(1, 1, 1, 1);
     if(gUseTexure)
@@ -136,30 +136,30 @@ float4 PS(VertexOut pin,
 		if(gAlphaClip)
 		{
 			// Discard pixel if texture alpha < 0.1.  Note that we do this
-			// test as soon as possible so that we can potentially exit the shader 
+			// test as soon as possible so that we can potentially exit the shader
 			// early, thereby skipping the rest of the shader code.
 			clip(texColor.a - 0.1f);
 		}
 	}
-	 
+
 	//
 	// Lighting.
 	//
 
 	float4 litColor = texColor;
 	if( gLightCount > 0  )
-	{  
-		// Start with a sum of zero. 
+	{
+		// Start with a sum of zero.
 		float4 ambient = float4(0.0f, 0.0f, 0.0f, 0.0f);
 		float4 diffuse = float4(0.0f, 0.0f, 0.0f, 0.0f);
 		float4 spec    = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
-		// Sum the light contribution from each light source.  
+		// Sum the light contribution from each light source.
 		[unroll]
 		for(int i = 0; i < gLightCount; ++i)
 		{
 			float4 A, D, S;
-			ComputeDirectionalLight(gMaterial, gDirLights[i], pin.NormalW, toEye, 
+			ComputeDirectionalLight(gMaterial, gDirLights[i], pin.NormalW, toEye,
 				A, D, S);
 
 			ambient += A;
@@ -169,39 +169,73 @@ float4 PS(VertexOut pin,
 
 		litColor = texColor*(ambient + diffuse) + spec;
 
-		if ( gReflectionEnabled )
-		{
-			float3 incident = -toEye;
-#ifdef PROJECT_SPHERE
-			float3 reflectionVector = refract(incident, pin.NormalW, 1.0);
-			float t0, t1;
-			if (raysphere(gEyePosW, reflectionVector, gRadius, 1.0e-4, t0, t1) > 0)
-			{
-				float3 correctedVec = reflectionVector*t0 + gEyePosW - gEnvMapCenterW;
-				float4 reflectionColor = gCubeMap.Sample(samAnisotropic, correctedVec);
-				litColor += gMaterial.Reflect*reflectionColor;
-			}
-#else // PROJECT_BOX
-			float3 n = float3(1, 0, 0);
-			float t = dot(-n, gEyePosW) - gRadius;
-			float nu = dot(n, incident);
-			t = t / nu;
-			if (t > 0) {
-				float3 correctedVec = normalize(incident * t / nu + (gEyePosW - gEnvMapCenterW));
-				float4 reflectionColor = gCubeMap.Sample(samAnisotropic, correctedVec);
-				litColor += gMaterial.Reflect*reflectionColor;
-			}
-#endif
-		}
-	}
- 
+        if (gReflectionEnabled)
+        {
+            float3 incident = -toEye;
+            // [Advance renderMan] (https://seblagarde.wordpress.com/2012/09/29/image-based-lighting-approaches-and-parallax-corrected-cubemap/)
+            // for long mirror impl.
+        #ifdef MIRROR
+        #ifdef PROJECT_SPHERE
+            float3 reflectionVector = refract( incident, pin.NormalW, 1.0 );
+            float t0, t1;
+            if (raysphere( gEyePosW, reflectionVector, gRadius, 1.0e-4, t0, t1 ) > 0)
+            {
+                float3 correctedVec = reflectionVector*t0 + gEyePosW - gEnvMapCenterW;
+                float4 reflectionColor = gCubeMap.Sample( samAnisotropic, correctedVec );
+                litColor += gMaterial.Reflect*reflectionColor;
+            }
+        #else // PROJECT_BOX
+            // from where?
+            float3 n = normalize( pin.NormalW );
+            float t = dot( n, gEyePosW ) - gRadius;
+            float nu = dot( n, toEye );
+            t = t / nu;
+            if (t > 0) {
+                float3 correctedVec = normalize( incident * t / nu + (gEyePosW - gEnvMapCenterW) );
+                float4 reflectionColor = gCubeMap.Sample( samAnisotropic, correctedVec );
+                litColor += gMaterial.Reflect*reflectionColor;
+            }
+        #endif
+        #else // for ground
+        #if 1
+            // https://seblagarde.wordpress.com/2012/09/29/image-based-lighting-approaches-and-parallax-corrected-cubemap/
+            float3 BoxMin = float3(-5, 0, -10);
+            float3 BoxMax = float3(5, 5, 10);
+            float3 DirectionWS = normalize( pin.PosW - gEyePosW );
+            float3 ReflDirectionWS = reflect( DirectionWS, pin.NormalW );
+
+            // Following is the parallax-correction code
+            // Find the ray intersection with box plane
+            float3 FirstPlaneIntersect = (BoxMax - pin.PosW) / ReflDirectionWS;
+            float3 SecondPlaneIntersect = (BoxMin - pin.PosW) / ReflDirectionWS;
+            // Get the furthest of these intersections along the ray
+            float3 FurthestPlane = max( FirstPlaneIntersect, SecondPlaneIntersect );
+            // Find the closest far intersection
+            float Distance = min( min( FurthestPlane.x, FurthestPlane.y ), FurthestPlane.z );
+
+            // Get the intersection position
+            float3 IntersectPositionWS = pin.PosW + ReflDirectionWS * Distance;
+            // Get corrected reflection
+            ReflDirectionWS = IntersectPositionWS - gEnvMapCenterW;
+            // End parallax-correction code
+            float4 reflectionColor = gCubeMap.Sample( samAnisotropic, ReflDirectionWS );
+            litColor = gMaterial.Reflect*reflectionColor;
+        #else // traditional reflection vector calculation
+            float3 toEyeW = normalize( gEyePosW - pin.PosW );
+            float3 reflectionVector = reflect( incident, pin.NormalW );
+            float4 reflectionColor = gCubeMap.Sample( samAnisotropic, reflectionVector );
+            litColor += gMaterial.Reflect*reflectionColor;
+        #endif
+        #endif
+        }
+    }
 	//
 	// Fogging
 	//
 
 	if( gFogEnabled )
 	{
-		float fogLerp = saturate( (distToEye - gFogStart) / gFogRange ); 
+		float fogLerp = saturate( (distToEye - gFogStart) / gFogRange );
 
 		// Blend the fog color and the lit color.
 		litColor = lerp(litColor, gFogColor, fogLerp);
@@ -429,7 +463,7 @@ technique11 Light3TexAlphaClipFog
     {
         SetVertexShader( CompileShader( vs_5_0, VS() ) );
 		SetGeometryShader( NULL );
-        SetPixelShader( CompileShader( ps_5_0, PS(3, true, true, true, false) ) ); 
+        SetPixelShader( CompileShader( ps_5_0, PS(3, true, true, true, false) ) );
     }
 }
 
@@ -649,6 +683,6 @@ technique11 Light3TexAlphaClipFogReflect
     {
         SetVertexShader( CompileShader( vs_5_0, VS() ) );
 		SetGeometryShader( NULL );
-        SetPixelShader( CompileShader( ps_5_0, PS(3, true, true, true, true) ) ); 
+        SetPixelShader( CompileShader( ps_5_0, PS(3, true, true, true, true) ) );
     }
 }
